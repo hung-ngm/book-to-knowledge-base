@@ -1,11 +1,11 @@
 """`prompt.tool_call_tag` must catch the token, not the English phrase.
 
-The rule exists to stop a generated skill from carrying a control token that
+The rule exists to stop a Library note from carrying a control token that
 would make another agent act. It matched `\\btool[_ -]?call\\b` anywhere, so
 every book explaining what a tool call is tripped the gate — and books about
 agents and prompting are the most converted kind here.
 
-The scan is a gate: it stops installation and asks for human review. A gate
+The scan is a gate: it stops a Library being used and asks for human review. A gate
 that always fires on a whole category trains people to wave it through, which
 costs more than the false positive it produces.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR / "tools"))
 
-import scan_generated_skill as scanner
+import scan_library as scanner
 
 RULE = next(r for r in scanner._CONTENT_RULES if r[0] == "prompt.tool_call_tag")[1]
 

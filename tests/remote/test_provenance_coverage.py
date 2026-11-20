@@ -25,7 +25,7 @@ from book_to_kb.remote.provenance import (  # noqa: E402
     build_remote_provenance,
     render_provenance_markdown,
 )
-from tools.scan_generated_skill import _scan_text  # noqa: E402
+from tools.scan_library import _scan_text  # noqa: E402
 
 
 def _sample_candidate(provider: str = "libgen-mcp") -> dict:
@@ -424,7 +424,7 @@ def test_provenance_never_stores_or_renders_raw_prose():
     assert "`partial`" in md
 
 
-def test_provenance_falls_back_to_session_work_and_passes_skill_scanner():
+def test_provenance_falls_back_to_session_work_and_passes_library_scanner():
     sparse_candidate = {"provider": "openlibrary-mcp", "title": "Sparse\u200b Book"}
     session = _sample_session(
         [
@@ -449,7 +449,7 @@ def test_provenance_falls_back_to_session_work_and_passes_skill_scanner():
 
     md = render_provenance_markdown(prov)
     assert "\u200b" not in md
-    findings = _scan_text("SKILL.md", f"## Scope & Limits\n\n{md}\n")
+    findings = _scan_text("books/sparse-book/sparse-book.md", f"## Scope & Limits\n\n{md}\n")
     assert findings == []
 
 

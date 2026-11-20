@@ -176,7 +176,7 @@ class TestScannerAndExtractorAgree:
     """The two injection defenses must not drift apart again."""
 
     def test_scanner_flags_everything_extraction_strips(self):
-        from scan_generated_skill import _is_invisible
+        from scan_library import _is_invisible
 
         codepoints = map(ord, BIDI_CONTROLS + OTHER_INVISIBLES)
         failures = list(
@@ -190,9 +190,9 @@ class TestScannerAndExtractorAgree:
 
     def test_scanner_shares_the_extractor_predicate(self):
         """Guards against a future copy-paste divergence like the U+2060 one."""
-        import scan_generated_skill
+        import scan_library
 
-        assert scan_generated_skill.is_invisible_codepoint is is_invisible_codepoint
+        assert scan_library.is_invisible_codepoint is is_invisible_codepoint
 
     def test_previously_covered_codepoints_still_covered(self):
         # Regression net for the original set (#75) and the word joiner (#85).
@@ -270,7 +270,7 @@ class TestSmugglingChannelsBeyondTheTagBlock:
         assert chr(0xFFF9) not in sanitized and chr(0xFFFB) not in sanitized
 
     def test_scanner_flags_the_new_channels_too(self):
-        from scan_generated_skill import _is_invisible
+        from scan_library import _is_invisible
 
         assert _is_invisible(0xFE0F), (
             "scanner does not flag U+FE0F but extraction strips it"
@@ -314,7 +314,7 @@ class TestDefaultIgnorableCarriers:
         assert sanitize_extracted_text(payload) == ("a", 12)
 
     def test_scanner_flags_the_carriers(self):
-        from scan_generated_skill import _is_invisible
+        from scan_library import _is_invisible
 
         unflagged = list(
             filter(lambda codepoint: not _is_invisible(codepoint), DEFAULT_IGNORABLE_CARRIERS)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Advisory scan for prompt injection and unsafe authority in generated skills."""
+"""Advisory scan for prompt injection and unsafe authority in a Library's notes."""
 
 from __future__ import annotations
 
@@ -20,15 +20,19 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-MAX_SKILL_FILES = 1_000
+MAX_NOTE_FILES = 20_000
 MAX_FILE_BYTES = 2 * 1024 * 1024
-MAX_TOTAL_BYTES = 20 * 1024 * 1024
-SUPPORTING_FILENAMES = ("glossary.md", "patterns.md", "cheatsheet.md")
+MAX_TOTAL_BYTES = 256 * 1024 * 1024
+CONFIG_NAME = "library.json"
+INDEX_FILENAMES = ("index.md", "glossary.md", "AGENTS.md")
+BOOKS_DIR = "books"
+CONCEPTS_DIR = "concepts"
+SOURCES_DIR = ".sources"
 
 # Reuse the extractor's invisible-code-point set instead of duplicating it, so
 # the two injection defenses cannot drift apart. They previously did: the
 # extractor did not strip U+2060 while this scanner flagged it, so a generated
-# skill was warned about a character extraction was meant to have removed.
+# note was warned about a character extraction was meant to have removed.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from book_to_kb.sanitize import is_invisible_codepoint  # noqa: E402
 
@@ -107,7 +111,7 @@ _SENSITIVE_TERM = re.compile(
 
 
 class ScanError(RuntimeError):
-    """Raised when the scanner cannot inspect the complete generated skill."""
+    """Raised when the scanner cannot inspect every note in the Library."""
 
 
 @dataclass(frozen=True)
@@ -136,90 +140,116 @@ def _frontmatter_line_numbers(lines: Sequence[str]) -> set[int]:
     return set()
 
 
-def _walk_markdown(directory: Path) -> list[Path]:
+def _walk_markdown(directory: Path, *, skip_root_dirs: frozenset[str] = frozenset()) -> list[Path]:
     """Collect ``*.md`` under ``directory`` at any depth, ignoring symlinks.
 
     ``os.walk(followlinks=False)`` rather than ``Path.rglob``: before Python 3.13
-    ``rglob`` descends into symlinked directories, which would let a generated
-    skill walk the scanner outside its own tree. Symlinked *files* are left in
-    the list and rejected later by :func:`_read_skill_files`, so a planted
-    symlink is reported as an error rather than silently skipped.
+    ``rglob`` descends into symlinked directories, which would let a Library
+    walk the scanner outside its own tree. Symlinked *files* are left in the
+    list and rejected later by :func:`_read_notes`, so a planted symlink is
+    reported as an error rather than silently skipped. Directories named in
+    ``skip_root_dirs`` are pruned when they sit directly under ``directory``.
     """
     found: list[Path] = []
-    for walk_root, _dirnames, filenames in os.walk(directory, followlinks=False):
+    for walk_root, dirnames, filenames in os.walk(directory, followlinks=False):
+        if skip_root_dirs and Path(walk_root) == directory:
+            dirnames[:] = [name for name in dirnames if name not in skip_root_dirs]
         for filename in filenames:
             if filename.lower().endswith(".md"):
                 found.append(Path(walk_root) / filename)
     return found
 
 
-def unscanned_markdown(path: Path) -> list[str]:
-    """Markdown files present in the skill directory but outside the scan scope.
-
-    The scope is deliberately bounded to what book-to-skill generates (SKILL.md,
-    the supporting files, and ``chapters/``), so unrelated notes in the directory
-    are not scanned and cannot raise false findings. The risk is the *reporting*:
-    printing "scan passed" while files the agent will happily read went unopened
-    is a false assurance. Listing them keeps the bounded scope honest.
-    """
+def _library_root(path: Path) -> Path:
     requested = path.expanduser()
-    root = (requested.parent if requested.name.lower() == "skill.md" else requested)
-    root = root.resolve(strict=True)
-    scanned = set(_collect_skill_files(requested))
+    if requested.is_symlink():
+        raise ScanError("the Library directory must not be a symbolic link")
+    try:
+        root = requested.resolve(strict=True)
+    except OSError as exc:
+        raise ScanError("the Library directory does not exist") from exc
+    if not root.is_dir():
+        raise ScanError("the Library path is not a directory")
+    config = root / CONFIG_NAME
+    if config.is_symlink():
+        raise ScanError(f"{CONFIG_NAME} must be a real file, not a symbolic link")
+    if not config.is_file():
+        raise ScanError(f"not a Library (no {CONFIG_NAME})")
+    return root
+
+
+def unscanned_markdown(path: Path) -> list[str]:
+    """Markdown files present in the Library but outside the scan scope.
+
+    The scope is bounded to the notes an agent reads (the Index Pages,
+    ``books/`` and ``concepts/``), so unrelated files in the folder are not
+    scanned and cannot raise false findings. The risk is the *reporting*:
+    printing "scan passed" while files an agent might read went unopened is a
+    false assurance. Listing them keeps the bounded scope honest.
+
+    ``.sources/`` is left out of this list as well: it holds the opt-in raw
+    extracted text, which agents never read as notes. The CLI says so.
+    """
+    root = _library_root(path)
+    scanned = set(_collect_notes(root))
     return sorted(
         candidate.relative_to(root).as_posix()
-        for candidate in _walk_markdown(root)
+        for candidate in _walk_markdown(root, skip_root_dirs=frozenset({SOURCES_DIR}))
         if candidate not in scanned
     )
 
 
-def _collect_skill_files(skill_dir: Path) -> list[Path]:
-    requested = skill_dir.expanduser()
-    if requested.name.lower() == "skill.md" and requested.is_file():
-        requested = requested.parent
-    if requested.is_symlink():
-        raise ScanError("the generated skill directory must not be a symbolic link")
-    try:
-        root = requested.resolve(strict=True)
-    except OSError as exc:
-        raise ScanError("the generated skill directory does not exist") from exc
-    if not root.is_dir():
-        raise ScanError("the generated skill path is not a directory")
+def _real_dir(root: Path, name: str) -> Path | None:
+    directory = root / name
+    if directory.is_symlink():
+        raise ScanError(f"{name} must be a real directory, not a symbolic link")
+    if not directory.exists():
+        return None
+    if not directory.is_dir():
+        raise ScanError(f"{name} must be a real directory")
+    return directory
 
-    master = root / "SKILL.md"
-    if not master.is_file() or master.is_symlink():
-        raise ScanError("SKILL.md is missing or is a symbolic link")
 
-    candidates = {master}
-    for filename in SUPPORTING_FILENAMES:
-        supporting_file = root / filename
-        if supporting_file.is_symlink():
+def _collect_notes(path: Path) -> list[Path]:
+    root = _library_root(path)
+
+    candidates: set[Path] = set()
+    for filename in INDEX_FILENAMES:
+        index_page = root / filename
+        if index_page.is_symlink():
             raise ScanError(f"{filename} must be a real file, not a symbolic link")
-        if supporting_file.exists():
-            if not supporting_file.is_file():
+        if index_page.exists():
+            if not index_page.is_file():
                 raise ScanError(f"{filename} must be a real file")
-            candidates.add(supporting_file)
+            candidates.add(index_page)
 
-    chapters = root / "chapters"
-    if chapters.exists():
-        if chapters.is_symlink() or not chapters.is_dir():
-            raise ScanError("chapters must be a real directory, not a symbolic link")
-        candidates.update(_walk_markdown(chapters))
+    books = _real_dir(root, BOOKS_DIR)
+    if books is not None:
+        candidates.update(_walk_markdown(books))
 
-    files = sorted(candidates, key=lambda path: path.relative_to(root).as_posix().lower())
-    if len(files) > MAX_SKILL_FILES:
+    concepts = _real_dir(root, CONCEPTS_DIR)
+    if concepts is not None:
+        # Flat on purpose: Concepts live directly in concepts/. Anything nested
+        # deeper is not a Concept and is reported as unscanned instead.
+        candidates.update(
+            entry
+            for entry in concepts.iterdir()
+            if entry.name.lower().endswith(".md") and (entry.is_file() or entry.is_symlink())
+        )
+
+    files = sorted(candidates, key=lambda item: item.relative_to(root).as_posix().lower())
+    if len(files) > MAX_NOTE_FILES:
         raise ScanError(
-            f"generated skill has {len(files):,} Markdown files; maximum is "
-            f"{MAX_SKILL_FILES:,}"
+            f"Library has {len(files):,} Markdown notes; maximum is {MAX_NOTE_FILES:,}"
         )
     return files
 
 
-def _read_skill_files(skill_dir: Path, files: Iterable[Path]) -> Iterable[tuple[str, str]]:
+def _read_notes(root: Path, files: Iterable[Path]) -> Iterable[tuple[str, str]]:
     total_bytes = 0
     for path in files:
         if path.is_symlink():
-            raise ScanError("generated skill contains a symbolic-link Markdown file")
+            raise ScanError("Library contains a symbolic-link Markdown note")
         size = path.stat().st_size
         if size > MAX_FILE_BYTES:
             raise ScanError(
@@ -229,9 +259,9 @@ def _read_skill_files(skill_dir: Path, files: Iterable[Path]) -> Iterable[tuple[
         total_bytes += size
         if total_bytes > MAX_TOTAL_BYTES:
             raise ScanError(
-                f"generated skill Markdown exceeds the {MAX_TOTAL_BYTES:,}-byte scan limit"
+                f"Library Markdown exceeds the {MAX_TOTAL_BYTES:,}-byte scan limit"
             )
-        relative = path.relative_to(skill_dir).as_posix()
+        relative = path.relative_to(root).as_posix()
         try:
             yield relative, path.read_text(encoding="utf-8-sig")
         except UnicodeDecodeError as exc:
@@ -281,7 +311,7 @@ def _scan_text(relative_path: str, text: str) -> list[Finding]:
                         relative_path,
                         line_number,
                         "frontmatter.allowed_tools",
-                        "generated frontmatter declares or widens tool authority",
+                        "note frontmatter declares or widens tool authority",
                     )
                 )
             if re.match(
@@ -295,59 +325,65 @@ def _scan_text(relative_path: str, text: str) -> list[Finding]:
                         relative_path,
                         line_number,
                         "frontmatter.model_invocation_enabled",
-                        "generated frontmatter explicitly enables model invocation",
+                        "note frontmatter explicitly enables model invocation",
                     )
                 )
 
     return findings
 
 
-def scan_generated_skill(path: Path) -> list[Finding]:
-    requested = path.expanduser()
-    skill_dir = requested.parent if requested.name.lower() == "skill.md" else requested
-    files = _collect_skill_files(requested)
-    root = skill_dir.resolve(strict=True)
+def scan_library(path: Path) -> list[Finding]:
+    root = _library_root(path)
     findings: list[Finding] = []
-    for relative_path, text in _read_skill_files(root, files):
+    for relative_path, text in _read_notes(root, _collect_notes(root)):
         findings.extend(_scan_text(relative_path, text))
     return sorted(findings, key=lambda item: (item.path.lower(), item.line, item.rule_id))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", help="Generated skill directory or its SKILL.md")
+    parser.add_argument("path", help="Library root (the folder holding library.json)")
     args = parser.parse_args(argv)
 
     try:
-        findings = scan_generated_skill(Path(args.path))
-        skipped = unscanned_markdown(Path(args.path))
+        root = _library_root(Path(args.path))
+        findings = scan_library(root)
+        skipped = unscanned_markdown(root)
     except ScanError as exc:
-        print(f"ERROR generated-skill scan incomplete: {exc}", file=sys.stderr)
+        print(f"ERROR Library scan incomplete: {exc}", file=sys.stderr)
         return 2
+
+    if (root / SOURCES_DIR).is_dir():
+        # Not a Finding and not a skip: raw text is input to note-writing, not
+        # a note, so agents reading the Library never open it.
+        print(
+            f"Note: {SOURCES_DIR}/ (opt-in raw source text, never read as notes) "
+            "is excluded from the scan."
+        )
 
     if skipped:
         # Advisory only, and deliberately not a Finding: the bounded scope is
         # intentional, so these files must not change the exit code. But the
         # user has to know the "passed" line below does not cover them.
         print(
-            f"Note: {len(skipped)} Markdown file(s) in the skill directory are "
-            "outside the generated-skill scope and were NOT scanned:"
+            f"Note: {len(skipped)} Markdown file(s) in the Library are outside "
+            "the note scope and were NOT scanned:"
         )
         for relative in skipped:
             print(f"  SKIP {_terminal_safe(relative)}")
         print(
-            "  Scope is SKILL.md, glossary/patterns/cheatsheet, and chapters/. "
-            "Move generated content there to have it scanned."
+            "  Scope is index.md, glossary.md, AGENTS.md, books/, and concepts/*.md. "
+            "Move Library content there to have it scanned."
         )
 
     if findings:
-        print(f"Generated-skill scan found {len(findings)} advisory finding(s):")
+        print(f"Library scan found {len(findings)} advisory finding(s):")
         for finding in findings:
             print(
                 f"  WARN {_terminal_safe(finding.path)}:{finding.line} "
                 f"[{finding.rule_id}] {finding.message}"
             )
-        print("Review the generated files before loading, installing, or publishing them.")
+        print("Review the flagged notes before an agent reads, shares, or publishes the Library.")
         print(
             "Rules are intentionally broad and may match legitimate AI/LLM or "
             "systems-topic text; review each finding in context."
@@ -357,7 +393,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     scope = " in the scanned scope" if skipped else ""
     print(
-        f"Generated-skill scan passed: no known injection or authority patterns "
+        f"Library scan passed: no known injection or authority patterns "
         f"found{scope}."
     )
     return 0

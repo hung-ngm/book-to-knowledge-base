@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # is that output is non-empty and expected, not that it lands on a stream.
 ENTRY_POINTS = {
     "scripts/extract.py": "book-to-knowledge-base · turns books into a linked knowledge base",
-    "tools/scan_generated_skill.py": "usage: scan_generated_skill.py [-h] path",
+    "tools/scan_library.py": "usage: scan_library.py [-h] path",
     "scripts/kb.py": "usage: kb.py [-h]",
     "book_to_kb/cli.py": "book-to-knowledge-base · turns books into a linked knowledge base",
 }
@@ -206,7 +206,9 @@ def test_entry_point_list_still_matches_the_source_tree():
     """Guard against the list going stale as the package grows."""
     found = set()
     for py in _iter_source_files():
-        if py.suffix != ".py":
+        # Only the deployed payload can leave bytecode inside an installed skill;
+        # dev-only scripts under tests/ never ship.
+        if py.suffix != ".py" or py.relative_to(REPO_ROOT).parts[0] not in PAYLOAD:
             continue
         try:
             lines = py.read_text(encoding="utf-8").splitlines()

@@ -48,11 +48,11 @@ from tests.remote.mock_mcp import MockMCPServer  # noqa: E402
 
 def _load_scanner() -> Any:
     spec = importlib.util.spec_from_file_location(
-        "scan_generated_skill", ROOT_DIR / "tools" / "scan_generated_skill.py"
+        "scan_library", ROOT_DIR / "tools" / "scan_library.py"
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["scan_generated_skill"] = module
+    sys.modules["scan_library"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -154,24 +154,29 @@ def test_prompt_injection_unicode_stripped_and_control_tokens_caught_by_scanner(
     for invisible in ("\u200b", "\u202e", "\U000e0041", "\ufe0f"):
         assert invisible not in section_res["text"]
 
-    # 2. Control-token / instruction-override payloads caught by tools/scan_generated_skill.py
+    # 2. Control-token / instruction-override payloads caught by tools/scan_library.py
     mcp.clear_failures()
     mcp.set_failure("prompt_injection", "control_tokens")
     poisoned_pages = list(mcp.iter_section_pages("syn-arch-epub-2", "ch3"))
     poisoned_res = read_section_from_pages(poisoned_pages)
 
-    skill_dir = tmp_path / "poisoned-skill"
-    (skill_dir / "chapters").mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: poisoned-skill\ndescription: Test skill.\n---\n\n# Poisoned\n",
+    library = tmp_path / "poisoned-library"
+    book_dir = library / "books" / "systems-architecture-primer"
+    book_dir.mkdir(parents=True)
+    (library / "library.json").write_text(
+        '{"name": "Poisoned", "language": "en"}\n', encoding="utf-8"
+    )
+    (book_dir / "systems-architecture-primer.md").write_text(
+        "---\nkind: book\ntitle: Systems Architecture Primer\n---\n\n# Primer\n",
         encoding="utf-8",
     )
-    (skill_dir / "chapters" / "ch03-storage.md").write_text(
+    chapter = book_dir / "systems-architecture-primer-ch03.md"
+    chapter.write_text(
         f"# Storage\n\n{poisoned_res['text']}\n",
         encoding="utf-8",
     )
 
-    findings = scanner.scan_generated_skill(skill_dir)
+    findings = scanner.scan_library(library)
     rule_ids = {f.rule_id for f in findings}
     assert {
         "prompt.ignore_previous",
@@ -181,15 +186,15 @@ def test_prompt_injection_unicode_stripped_and_control_tokens_caught_by_scanner(
         "prompt.fake_system_prefix",
         "tool.exfiltration_shape",
     }.issubset(rule_ids)
-    assert scanner.main([str(skill_dir)]) == 1
+    assert scanner.main([str(library)]) == 1
 
-    # 3. Clean synthesized skill passes scan_generated_skill with exit code 0
-    (skill_dir / "chapters" / "ch03-storage.md").write_text(
+    # 3. A clean Chapter Note passes scan_library with exit code 0
+    chapter.write_text(
         "# Storage\n\n- Append-only logs maximize sequential write throughput.\n",
         encoding="utf-8",
     )
-    assert scanner.scan_generated_skill(skill_dir) == []
-    assert scanner.main([str(skill_dir)]) == 0
+    assert scanner.scan_library(library) == []
+    assert scanner.main([str(library)]) == 0
 
 
 def test_session_and_provenance_never_leak_raw_prose(tmp_path: Path):
