@@ -680,7 +680,16 @@ def _numbered_titles_are_structural(
 
 
 def _structural_chapter_headings(text: str) -> list[str]:
-    """Return chapter-like structural headings in Markdown/AsciiDoc/RST sources.
+    """Return chapter-like structural headings in Markdown/AsciiDoc/RST sources."""
+    return [sample for sample, _ in _structural_chapter_heading_entries(text)]
+
+
+def _structural_chapter_heading_entries(text: str) -> list[tuple[str, int]]:
+    """Return (sample, 0-based line index) for each structural chapter heading.
+
+    The index is the line holding the title: the ATX heading line itself, or
+    the title line above a setext underline. A title repeated at the selected
+    depth is one chapter, located at its first occurrence.
 
     Recognizes ATX headings ("# Title", "== Section") and setext/RST underline
     headings (a title line directly above a row of "=" or "-"). Groups distinct
@@ -699,7 +708,7 @@ def _structural_chapter_headings(text: str) -> list[str]:
     # Map normalized titles to their original representation. Dict insertion
     # order makes the returned sample match the source order while preserving
     # the previous case-insensitive de-duplication behavior.
-    levels: dict[int, dict[str, str]] = {}
+    levels: dict[int, dict[str, tuple[str, int]]] = {}
     # Digit-led titles are held back and judged per depth at the end (see
     # _numbered_titles_are_structural): "## 1. Introduction" and "## 5 Setup"
     # are the same string shape, so the line alone cannot decide.
@@ -730,7 +739,9 @@ def _structural_chapter_headings(text: str) -> list[str]:
             depth = 1 if s[0] == "=" else 2
             heading_lines.append(index)
             if not _is_non_chapter_section(prev):
-                levels.setdefault(depth, {}).setdefault(prev.casefold(), prev)
+                levels.setdefault(depth, {}).setdefault(
+                    prev.casefold(), (prev, index - 1)
+                )
             prev = ""
             continue
         # ATX heading ("# Title", "== Section").
@@ -745,7 +756,7 @@ def _structural_chapter_headings(text: str) -> list[str]:
                     if title[0].isdigit():
                         numbered.setdefault(depth, []).append((title, index, s))
                     else:
-                        levels.setdefault(depth, {}).setdefault(title, s)
+                        levels.setdefault(depth, {}).setdefault(title, (s, index))
             # An ATX heading line is not a setext title for the next line.
             prev = ""
             continue
@@ -753,8 +764,8 @@ def _structural_chapter_headings(text: str) -> list[str]:
     for depth, entries in numbered.items():
         if _numbered_titles_are_structural(entries, heading_lines, lines):
             level = levels.setdefault(depth, {})
-            for title, _, sample in entries:
-                level.setdefault(title, sample)
+            for title, line_index, sample in entries:
+                level.setdefault(title, (sample, line_index))
     if not levels:
         return []
     for depth in sorted(levels):
@@ -764,9 +775,9 @@ def _structural_chapter_headings(text: str) -> list[str]:
     # level). Count them all — this path runs only as a fallback when numeric
     # chapter detection already found zero, so it cannot inflate real books.
     return [
-        title
+        entry
         for depth in sorted(levels)
-        for title in levels[depth].values()
+        for entry in levels[depth].values()
     ]
 
 
@@ -1195,6 +1206,99 @@ def chapter_line_ranges(
     return ranges
 
 
+# Numeric chapter headings this close together (counting non-blank lines
+# between them) are a table of contents or chapter list, not chapter bodies.
+_TOC_CLUSTER_MAX_GAP = 2
+
+
+def _newline_line_count(text: str) -> int:
+    """Lines in *text* as `sed`/`wc -l` number them (split on "\\n" only)."""
+    if not text:
+        return 0
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
+
+
+def _heading_line_ranges(
+    text: str, lines: list[str], starts: list[int]
+) -> list[dict[str, int | str]]:
+    """1-based inclusive ranges, one per chapter heading line in *starts*.
+
+    *starts* are 0-based `str.splitlines()` indices. The emitted numbers count
+    "\\n"-terminated lines, the numbering `sed -n 'A,Bp'` uses on the written
+    corpus: pdftotext's form feeds and other separators `splitlines()` also
+    breaks on would otherwise shift every later range. A chapter ends on the
+    line before the next chapter's heading, or on the text's last line.
+    """
+    ordered = sorted(set(starts))
+    if not ordered:
+        return []
+    newline_numbers = []
+    line_number = 1
+    for chunk in text.splitlines(keepends=True):
+        newline_numbers.append(line_number)
+        line_number += chunk.count("\n")
+    last_line = _newline_line_count(text)
+    ranges: list[dict[str, int | str]] = []
+    for position, index in enumerate(ordered):
+        start_line = newline_numbers[index]
+        if position + 1 < len(ordered):
+            end_line = newline_numbers[ordered[position + 1]] - 1
+        else:
+            end_line = last_line
+        ranges.append(
+            {
+                "title": _line_title_text(lines[index]),
+                "start_line": start_line,
+                "end_line": max(end_line, start_line),
+            }
+        )
+    return ranges
+
+
+def _numeric_chapter_start_lines(
+    lines: list[str], entries: list[tuple[int, int]]
+) -> list[int]:
+    """Pick one heading line per distinct chapter number.
+
+    *entries* are (0-based line index, chapter number) in source order. The
+    count of distinct numbers is `chapters_detected`, so a number seen more than
+    once (a ToC row and the body heading, or a running page header) keeps one
+    line: the first occurrence that is not a ToC row, else its last occurrence.
+    A ToC row has a leader ("....") or sits within `_TOC_CLUSTER_MAX_GAP`
+    non-blank lines of another chapter heading line.
+    """
+    heading_indices = [index for index, _ in entries]
+
+    def nonblank_between(a: int, b: int) -> int:
+        return sum(1 for line in lines[a + 1:b] if line.strip())
+
+    def toc_like(position: int) -> bool:
+        index = heading_indices[position]
+        if _TOC_LEADER.search(lines[index]):
+            return True
+        if position > 0 and nonblank_between(
+            heading_indices[position - 1], index
+        ) <= _TOC_CLUSTER_MAX_GAP:
+            return True
+        return position + 1 < len(heading_indices) and nonblank_between(
+            index, heading_indices[position + 1]
+        ) <= _TOC_CLUSTER_MAX_GAP
+
+    occurrences: dict[int, list[int]] = {}
+    for position, (_, number) in enumerate(entries):
+        occurrences.setdefault(number, []).append(position)
+    starts = []
+    for positions in occurrences.values():
+        if len(positions) == 1:
+            chosen = positions[0]
+        else:
+            chosen = next(
+                (pos for pos in positions if not toc_like(pos)), positions[-1]
+            )
+        starts.append(heading_indices[chosen])
+    return sorted(starts)
+
+
 def detect_structure(text: str) -> dict:
     """Detect chapter count and table of contents presence.
 
@@ -1216,8 +1320,12 @@ def detect_structure(text: str) -> dict:
 
     headings = []
     numbers = set()
+    # (line index, chapter number) for every counted heading line, the
+    # boundaries `chapter_ranges` is built from.
+    entries: list[tuple[int, int]] = []
     part_headings = []
     part_numbers = set()
+    part_entries: list[tuple[int, int]] = []
     prev = ""  # previous non-blank line; cleared by blanks and fences
     for index, line in enumerate(lines):
         if index in fenced:
@@ -1233,9 +1341,11 @@ def detect_structure(text: str) -> dict:
             if _PART_HEADER.match(title):
                 part_numbers.add(num)
                 part_headings.append(s)
+                part_entries.append((index, num))
             else:
                 numbers.add(num)
                 headings.append(s)
+                entries.append((index, num))
         prev = s
     numeric_count = len(numbers)
     # Fall back to structural (Markdown/AsciiDoc) headings only when no numeric
@@ -1251,12 +1361,14 @@ def detect_structure(text: str) -> dict:
         chapters_detected = numeric_count
         chapters_method = "numeric"
         chapter_headings_sample = headings[:10]
+        chapter_starts = _numeric_chapter_start_lines(lines, entries)
     else:
         # A single stray number (e.g. a Roman numeral inside an example paper
         # reproduced in the book, or a lone "Part 1") is not enough to suppress
         # the structural (Markdown/AsciiDoc) heading count, so course-style
         # books with "### Unit N" headings still get counted via max().
-        structural_headings = _structural_chapter_headings(text)
+        structural_entries = _structural_chapter_heading_entries(text)
+        structural_headings = [sample for sample, _ in structural_entries]
         structural_count = len(structural_headings)
         # Parts group chapters and must not win the numeric branch ahead of
         # the structural chapters inside them. Retain the old Part-only
@@ -1264,6 +1376,7 @@ def detect_structure(text: str) -> dict:
         if not numeric_count and not structural_count:
             numeric_count = len(part_numbers)
             headings = part_headings
+            entries = part_entries
         chapters_detected = max(numeric_count, structural_count)
         chapters_method = (
             "structural" if structural_count > numeric_count
@@ -1275,6 +1388,11 @@ def detect_structure(text: str) -> dict:
             if chapters_method == "structural"
             else headings[:10]
         )
+        chapter_starts = (
+            [index for _, index in structural_entries]
+            if chapters_method == "structural"
+            else _numeric_chapter_start_lines(lines, entries)
+        )
 
     # Look for ToC indicators in the first ~30k chars (multilingual; see _TOC_PATTERN)
     has_toc = bool(_TOC_PATTERN.search(text[:30000]))
@@ -1283,6 +1401,8 @@ def detect_structure(text: str) -> dict:
         "chapters_detected": chapters_detected,
         "chapters_method": chapters_method,
         "chapter_headings_sample": chapter_headings_sample,
+        # Same count as chapters_detected; line numbers index into *text*.
+        "chapter_ranges": _heading_line_ranges(text, lines, chapter_starts),
         "has_toc": has_toc,
     }
 
@@ -1301,8 +1421,11 @@ def apply_pdf_outline(structure: dict, pdf_path: str) -> dict:
         return structure
     all_titles = pdf_outline_all_titles(pdf_path)
     range_end_titles = [t for t in all_titles if _is_non_chapter_section(t)]
+    # Outline ranges are located from the titles later (chapter_line_ranges);
+    # the text heuristics' ranges describe chapters the outline replaced.
+    heuristic = {k: v for k, v in structure.items() if k != "chapter_ranges"}
     return {
-        **structure,
+        **heuristic,
         "chapters_detected": len(titles),
         "chapters_method": "outline",
         "chapter_headings_sample": titles[:10],
@@ -1925,6 +2048,9 @@ def main():
     
     extracted_sources = []
     combined_texts = []
+    # Newlines in the joined corpus before each source's first text line.
+    source_text_newlines = []
+    joined_newlines = 0
     errors = []
     
     for file_path in input_files:
@@ -1939,6 +2065,8 @@ def main():
         # Format the text with a clear boundary
         separator = f"\n\n{'=' * 80}\nSOURCE: {res['filename']} (Path: {res['source_file']})\n{'=' * 80}\n\n"
         combined_texts.append(separator + res["text"])
+        source_text_newlines.append(joined_newlines + separator.count("\n"))
+        joined_newlines += combined_texts[-1].count("\n")
     
     if not extracted_sources:
         print(f"\nERROR: All {len(errors)} source(s) failed extraction:", file=sys.stderr)
@@ -1956,7 +2084,13 @@ def main():
         sys.exit(1)
         
     # Combine texts
-    consolidated_text = "".join(combined_texts).strip()
+    joined_text = "".join(combined_texts)
+    consolidated_text = joined_text.strip()
+    stripped_lead = joined_text[: len(joined_text) - len(joined_text.lstrip())]
+    # Line N of a source's text is line offset + N of full_text.txt.
+    source_line_offsets = [
+        newlines - stripped_lead.count("\n") for newlines in source_text_newlines
+    ]
     
     # Preserve existing source line endings. On Windows, the default newline
     # translation turns an extracted CRLF into CRCRLF and breaks setext headings
@@ -1998,6 +2132,37 @@ def main():
                 chapter_titles,
                 range_end_titles=end_titles,
             )
+    # Per-source ranges index into that source's text: outline titles are
+    # located in it, and the text heuristics carry their own heading lines.
+    source_chapter_ranges = [
+        chapter_line_ranges(
+            src["text"],
+            src["chapter_titles"],
+            range_end_titles=src.get("chapter_range_end_titles"),
+        )
+        if "chapter_titles" in src
+        else src.get("chapter_ranges")
+        for src in extracted_sources
+    ]
+    if not (
+        len(extracted_sources) == 1
+        and extracted_sources[0]["chapters_method"] == "outline"
+    ):
+        # detect_structure ranged the joined text without SOURCE banners;
+        # re-anchor every source's ranges in full_text.txt instead, in order.
+        corpus_last_line = _newline_line_count(consolidated_text)
+        consolidated_structure["chapter_ranges"] = [
+            {
+                "title": chapter["title"],
+                "start_line": chapter["start_line"] + offset,
+                "end_line": min(chapter["end_line"] + offset, corpus_last_line),
+                "source": src["filename"],
+            }
+            for src, offset, ranges in zip(
+                extracted_sources, source_line_offsets, source_chapter_ranges
+            )
+            for chapter in ranges or []
+        ]
     structural_sources = [
         src for src in extracted_sources
         if src["chapters_method"] == "structural" and src["chapters_detected"] >= 2
@@ -2073,19 +2238,13 @@ def main():
                     else {}
                 ),
                 **(
-                    {
-                        "chapter_ranges": chapter_line_ranges(
-                            src["text"],
-                            src["chapter_titles"],
-                            range_end_titles=src.get("chapter_range_end_titles"),
-                        )
-                    }
-                    if "chapter_titles" in src
+                    {"chapter_ranges": ranges}
+                    if ranges is not None
                     else {}
                 ),
                 "has_toc": src["has_toc"]
             }
-            for src in extracted_sources
+            for src, ranges in zip(extracted_sources, source_chapter_ranges)
         ],
         **consolidated_structure,
     }
