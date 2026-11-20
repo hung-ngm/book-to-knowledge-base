@@ -90,16 +90,16 @@ Leave out any section that does not apply. Do not leave it with filler.
 kind: concept
 title: <Canonical Name>
 concept_kind: <framework|principle|technique|anti-pattern|term>
-aliases:
-  - <another name a Book uses>
-  - <original-language term, when the Library Language differs>
+aliases: []
 ---
 
 # <Canonical Name>
 
-<Definition: one paragraph, combined across every Contribution. First sentence stands alone, because the glossary quotes it.>
+<Definition: one paragraph that every Contributing Book supports. First sentence stands alone, because the glossary quotes it.>
 
 ## In [[<book>]]
+
+Also called: <another name this Book uses>; <original-language term, when the Library Language differs>
 
 <That author's exact formulation (one short quote at most), when to apply it, how (steps or criteria), and where it fails. Link chapters: [[<book>-chNN]]. 120–400 tokens.>
 
@@ -113,14 +113,17 @@ aliases:
 
 ## Related
 
-- [[<concept-slug>]]: <relationship in a few words>
+- [[<concept-slug>]]: <a relationship every Contributing Book supports>
 ```
 
 Rules:
 
-- **No aliases.** Write `aliases: []`.
+- **A Book owns only its Contribution** (ADR 0004). Everything a Book adds lives in its `## In [[book]]` section, so removing the Book removes all of it:
+  - **Names.** The `Also called:` line, first in the section, lists this Book's other names for the Concept, separated by `;`. Leave the line out when there are none.
+  - **Aliases.** Never edit `aliases` in frontmatter. `index` rebuilds it from every `Also called:` line, and `validate` flags a hand edit.
+  - **Details and relations only this Book draws** go in its Contribution, not in the definition or in `## Related`.
 - **Contribution order.** Contributions come right after the definition, in the order Books were added.
-- **Edits on later Books.** A later Book adds its own `## In [[book]]` section. It may also sharpen the definition, add aliases, add `## Tensions`, or add `## Related` lines. It never edits another Book's Contribution.
+- **Edits on later Books.** A later Book adds its own `## In [[book]]` section. It may also add `## Tensions`, or reword the definition and `## Related` where every Contributing Book supports the change. It never edits another Book's Contribution.
 - **Concept Kind:**
   - **framework:** a named model with parts.
   - **principle:** a rule that guides decisions.

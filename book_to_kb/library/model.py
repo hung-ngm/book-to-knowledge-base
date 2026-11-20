@@ -7,7 +7,8 @@ Layout (every note's filename stem is unique, so ``[[stem]]`` always resolves):
     <library>/books/<book>/<book>-chNN.md     Chapter Notes
     <library>/concepts/<concept>.md           Concepts
 
-A Concept's Books come from its Contribution headings (``## In [[<book>]]``).
+A Concept's Books come from its Contribution headings (``## In [[<book>]]``),
+and its aliases from each Contribution's ``Also called:`` line.
 A Chapter Note's Concepts come from its body wikilinks. Neither is repeated
 in frontmatter, so there is nothing to keep in sync.
 """
@@ -30,6 +31,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CHAPTER_STEM_RE = re.compile(r"^(?P<book>[a-z0-9-]+)-ch(?P<num>\d{2,3})$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
 CONTRIBUTION_RE = re.compile(r"^## In \[\[([^\]|#]+)(?:\|[^\]]*)?\]\]\s*$", re.M)
+ALSO_CALLED = "Also called:"
 
 
 class LibraryError(Exception):
@@ -69,6 +71,7 @@ class ChapterNote(Note):
 @dataclass
 class ConceptNote(Note):
     contributions: list[str] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -153,6 +156,25 @@ def wikilinks(text: str) -> list[str]:
     return [m.strip() for m in WIKILINK_RE.findall(text)]
 
 
+def contribution_aliases(body: str, title: str) -> list[str]:
+    """Names from every Contribution's leading `Also called:` line, in order.
+
+    Deduped ignoring case; the title itself is never an alias.
+    """
+    seen, out = {title.casefold()}, []
+    for heading, text in sections(body):
+        if not CONTRIBUTION_RE.match(heading):
+            continue
+        first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        if not first.startswith(ALSO_CALLED):
+            continue
+        for name in (n.strip() for n in first[len(ALSO_CALLED):].split(";")):
+            if name and name.casefold() not in seen:
+                seen.add(name.casefold())
+                out.append(name)
+    return out
+
+
 def sections(body: str) -> list[tuple[str, str]]:
     """Split a body into (heading, text) per '## ' section.
 
@@ -220,6 +242,7 @@ def load(root: Path) -> Library:
             body,
             wikilinks(body),
             contributions=[c.strip() for c in CONTRIBUTION_RE.findall(body)],
+            aliases=contribution_aliases(body, str(meta.get("title", ""))),
         )
 
     return Library(root, config, books, chapters, concepts)

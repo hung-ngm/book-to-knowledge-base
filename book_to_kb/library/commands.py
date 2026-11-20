@@ -76,7 +76,7 @@ def concept_list(lib: Library) -> str:
                     slug,
                     str(c.meta.get("concept_kind", "")),
                     str(c.meta.get("title", "")),
-                    "; ".join(c.meta.get("aliases") or []),
+                    "; ".join(c.aliases),
                     "; ".join(c.contributions),
                 ]
             )
@@ -127,7 +127,7 @@ def render_index(lib: Library) -> str:
             continue
         out += [f"### {kind} ({len(members)})", ""]
         for c in members:
-            aliases = c.meta.get("aliases") or []
+            aliases = c.aliases
             aka = f" · aka {'; '.join(aliases)}" if aliases else ""
             books = len(c.contributions)
             out.append(f"- [[{c.stem}|{_title(c)}]]{aka} · {books} book{'s' if books != 1 else ''}")
@@ -142,7 +142,7 @@ def render_glossary(lib: Library) -> str:
     for c in lib.concepts.values():
         definition = _definition(c.body)
         entries.append((_title(c), f"- **{_title(c)}** ({c.meta.get('concept_kind', '')}) → [[{c.stem}]]: {definition}"))
-        for alias in c.meta.get("aliases") or []:
+        for alias in c.aliases:
             entries.append((alias, f"- **{alias}** → see [[{c.stem}|{_title(c)}]]"))
     out = [GENERATED, "", "# Glossary", ""]
     out += [line for _, line in sorted(entries, key=lambda e: e[0].casefold())] or ["_No Concepts yet._"]
@@ -181,6 +181,28 @@ def _with_chapter_block(text: str, block: str) -> str:
     return text.rstrip("\n") + "\n\n## Chapters\n\n" + block + "\n"
 
 
+def _yaml_item(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9][^:#\"']*", value) and not value.endswith(" "):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _with_aliases(text: str, aliases: list[str]) -> str:
+    """Replace the frontmatter `aliases` entry, in place, with the derived list."""
+    end = text.find("\n---\n", 4)
+    lines = text[4:end].split("\n")
+    rendered = ["aliases:", *(f"  - {_yaml_item(a)}" for a in aliases)] if aliases else ["aliases: []"]
+    at = next((i for i, line in enumerate(lines) if line.startswith("aliases:")), None)
+    if at is None:
+        lines += rendered
+    else:
+        stop = at + 1
+        while stop < len(lines) and lines[stop].lstrip().startswith("- "):
+            stop += 1
+        lines[at:stop] = rendered
+    return "---\n" + "\n".join(lines) + text[end:]
+
+
 def expected_files(lib: Library) -> dict[Path, str]:
     """Every derived file and the text it must contain."""
     files = {
@@ -191,6 +213,8 @@ def expected_files(lib: Library) -> dict[Path, str]:
     for slug, book in lib.books.items():
         current = book.path.read_text(encoding="utf-8")
         files[book.path] = _with_chapter_block(current, render_chapter_block(lib, slug))
+    for concept in lib.concepts.values():
+        files[concept.path] = _with_aliases(concept.path.read_text(encoding="utf-8"), concept.aliases)
     return files
 
 
@@ -258,9 +282,7 @@ def validate(lib: Library) -> list[Finding]:
             err(c.path, f"concept slug {slug!r} must be lowercase words joined by '-'")
         if c.meta.get("concept_kind") not in CONCEPT_KINDS:
             err(c.path, f"concept_kind must be one of {', '.join(CONCEPT_KINDS)}")
-        if not isinstance(c.meta.get("aliases", []), list):
-            err(c.path, "'aliases' must be a list")
-        for name in [str(c.meta.get("title", "")), *(c.meta.get("aliases") or [])]:
+        for name in [str(c.meta.get("title", "")), *c.aliases]:
             key = name.casefold().strip()
             if not key:
                 continue

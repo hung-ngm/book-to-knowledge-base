@@ -15,6 +15,8 @@ from book_to_kb.library.model import LibraryError, load
 
 ALPHA_CONTRIBUTION = """## In [[alpha]]
 
+Also called: positive feedback; virtuous circle
+
 Alpha calls it "the loop that feeds itself". Apply it when growth compounds. See [[alpha-ch01]].
 """
 
@@ -55,9 +57,7 @@ CONCEPT_SHARED = f"""---
 kind: concept
 title: Reinforcing Loop
 concept_kind: framework
-aliases:
-  - positive feedback
-  - "virtuous circle"
+aliases: []
 ---
 
 # Reinforcing Loop
@@ -66,6 +66,8 @@ A loop where change feeds more change in the same direction. It explains compoun
 
 {ALPHA_CONTRIBUTION}
 ## In [[beta]]
+
+Also called: Positive Feedback; feedback spiral
 
 Beta names it "positive feedback". See [[beta-ch01]].
 
@@ -90,6 +92,8 @@ aliases: [negative feedback]
 A loop that pushes back toward a goal.
 
 ## In [[beta]]
+
+Also called: negative feedback
 
 Beta's thermostat example. See [[beta-ch01]].
 """
@@ -161,7 +165,7 @@ def test_index_lists_books_and_concepts_by_kind(library):
     index = (library / "index.md").read_text()
     assert "[[alpha\\|Alpha Book]]" in index
     assert "### framework (1)" in index
-    assert "- [[reinforcing-loop|Reinforcing Loop]] · aka positive feedback; virtuous circle · 2 books" in index
+    assert "- [[reinforcing-loop|Reinforcing Loop]] · aka positive feedback; virtuous circle; feedback spiral · 2 books" in index
 
 
 def test_glossary_points_aliases_at_their_concept(library):
@@ -179,7 +183,39 @@ def test_book_note_gets_a_generated_chapter_list(library):
 def test_concepts_listing_gives_aliases_and_books(library):
     rows = commands.concept_list(load(library)).splitlines()
     assert rows[0] == "slug\tkind\ttitle\taliases\tbooks"
-    assert "reinforcing-loop\tframework\tReinforcing Loop\tpositive feedback; virtuous circle\talpha; beta" in rows
+    assert "reinforcing-loop\tframework\tReinforcing Loop\tpositive feedback; virtuous circle; feedback spiral\talpha; beta" in rows
+
+
+# --- aliases are derived from Contributions ---
+
+
+def test_index_derives_aliases_from_also_called_lines(library):
+    meta = load(library).concepts["reinforcing-loop"].meta
+    # Contribution order, case-insensitive dedupe, title excluded.
+    assert meta["aliases"] == ["positive feedback", "virtuous circle", "feedback spiral"]
+
+
+def test_alias_written_by_hand_is_out_of_date(library):
+    path = library / "concepts/balancing-loop.md"
+    path.write_text(path.read_text().replace("  - negative feedback", "  - negative feedback\n  - heat governor"))
+    assert any("balancing-loop.md: out of date" in e for e in errors(library))
+    commands.index(load(library))
+    assert "heat governor" not in path.read_text()
+
+
+def test_alias_with_a_comma_or_colon_survives_the_round_trip(library):
+    path = library / "concepts/balancing-loop.md"
+    path.write_text(path.read_text().replace("Also called: negative feedback", "Also called: wages, profit: rent"))
+    commands.index(load(library))
+    assert load(library).concepts["balancing-loop"].meta["aliases"] == ["wages, profit: rent"]
+    assert commands.index(load(library)) == []
+
+
+def test_remove_book_drops_aliases_only_that_book_used(library):
+    commands.remove_book(load(library), "beta")
+    meta = load(library).concepts["reinforcing-loop"].meta
+    assert meta["aliases"] == ["positive feedback", "virtuous circle"]
+    assert errors(library) == []
 
 
 # --- validate catches each broken state ---
@@ -192,7 +228,7 @@ def test_broken_wikilink_is_an_error(library):
 
 
 def test_alias_shared_by_two_concepts_is_an_error(library):
-    text = CONCEPT_BETA_ONLY.replace("[negative feedback]", "[positive feedback]")
+    text = CONCEPT_BETA_ONLY.replace("Also called: negative feedback", "Also called: positive feedback")
     write(library, "concepts/balancing-loop.md", text)
     commands.index(load(library))
     assert any("'positive feedback'" in e for e in errors(library))

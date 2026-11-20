@@ -85,8 +85,8 @@ $KB relink "$LIB/books/<book>" "$WORK/relink.tsv"
 **Existing Concept.** Edit the note as follows:
 
 - Insert this Book's `## In [[<book>]]` section after the last Contribution.
-- Add the names this Book uses to `aliases`, unless they are already the title or an alias.
-- Sharpen the definition only if this Book makes it more precise.
+- Put the names this Book uses on the `Also called:` line of its own section. Never edit `aliases` in frontmatter; `index` rebuilds it.
+- Leave the definition and `## Related` alone unless the change holds for every Contributing Book. A detail or relation only this Book draws goes in its own section.
 - If this Book disagrees with another, add or extend `## Tensions` in the shared Concept. Name both Books. If the disagreement is about the definition itself, keep the definition neutral and put the disagreement in `## Tensions`.
 - Keep the existing `concept_kind` unless the user agrees to change it.
 - Never edit another Book's Contribution.
