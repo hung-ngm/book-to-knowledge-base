@@ -34,7 +34,7 @@ Leave the `kb:chapters` block empty. `index` fills it.
 
 ## Chapter Note: `books/<book>/<book>-chNN.md`
 
-`NN` is the two-digit chapter order (`01`, `02`, …), following the order of the extractor's `chapter_ranges`, not the book's own numbering. The title keeps the book's own numbering ("Book II, Chapter I: Of the Division of Stock").
+`NN` is the two-digit order of the Chapter Notes in the book (`01`, `02`, …), including a preface note, not the book's own numbering. The title keeps the book's own numbering ("Book II, Chapter I: Of the Division of Stock").
 
 ```markdown
 ---
@@ -76,7 +76,7 @@ source_lines: "<start>-<end>"
 
 Leave out any section that does not apply. Do not leave it with filler.
 
-**Budget per Chapter Note.** Earn study depth with content: a worked example, steps for each framework, and why it fails. Never pad.
+**Budget per Chapter Note.** Earn study depth with content: a worked example, steps for each framework, and why it fails. Budgets are targets, not minimums: a short chapter or a simple term gets a short note. Never pad.
 
 | | reference | study |
 |---|---|---|
@@ -119,7 +119,7 @@ Also called: <another name this Book uses>; <original-language term, when the Li
 Rules:
 
 - **A Book owns only its Contribution** (ADR 0004). Everything a Book adds lives in its `## In [[book]]` section, so removing the Book removes all of it:
-  - **Names.** The `Also called:` line, first in the section, lists this Book's other names for the Concept, separated by `;`. Leave the line out when there are none.
+  - **Names.** The `Also called:` line, first in the section, lists this Book's other names for the Concept, separated by `;`: abbreviations, synonyms, original-language terms. A generic label the author files it under ("Batching", "Caching") is not a name. Leave the line out when there are none.
   - **Aliases.** Never edit `aliases` in frontmatter. `index` rebuilds it from every `Also called:` line, and `validate` flags a hand edit.
   - **Details and relations only this Book draws** go in its Contribution, not in the definition or in `## Related`.
 - **Contribution order.** Contributions come right after the definition, in the order Books were added.

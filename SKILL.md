@@ -22,7 +22,7 @@ Turn books into one **Library**: plain markdown with `[[wikilinks]]` and YAML fr
 
 ## Paths and commands
 
-`SKILL_ROOT` is the folder that holds this `SKILL.md`. Hosts report it when they load the skill.
+`SKILL_ROOT` is the folder that holds this `SKILL.md`. Hosts report it when they load the skill; if yours does not, use the folder you read this file from.
 
 ```bash
 PY="${PYTHON_BIN:-python3}"; command -v "$PY" >/dev/null || PY=python

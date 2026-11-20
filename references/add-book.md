@@ -28,6 +28,13 @@ A range `title` is often only the label (`CHAPTER V.`). Take the full chapter ti
 
 If `chapter_ranges` is empty, or one range covers most of a long book, locate chapters yourself with `grep -n` on `TEXT`, and say so in the report.
 
+**Edges of the ranges.** Check what lies outside and at the end of the ranges with `grep -n -i` for headings such as `preface`, `introduction`, `appendix`, `glossary`, `references`, `acknowledg`:
+
+- A preface or introduction that argues something gets its own Chapter Note, first in order. Skip title pages, copyright pages and the table of contents.
+- If the last range runs into appendices or back matter, end it at the first appendix heading.
+- A book glossary is not a note. Use it to check your definitions, and make a Concept of a glossary term only when a chapter names it.
+- Skip reading lists, acknowledgements and advertisements, and say so in the Book Note.
+
 ## 4. Estimate, purpose, confirm
 
 Show:
@@ -35,14 +42,22 @@ Show:
 - the sources
 - the word count and `estimated_tokens` from `META`
 - the chapter count
-- the output tokens: about chapters × (the budget midpoint + 6 × 400), assuming about 6 new Concepts per chapter
+- the output tokens: about chapters × (the midpoint of the `BOOK_TYPE` × `DEPTH` budget cell + new Concepts per chapter × 400). Assume about 6 new Concepts per chapter for `text` books and about 12 for `technical` ones
 - the files to be written
 
 Ask in the same message: "Should these notes help you **reference** the book (lean) or **study** it (deeper, with worked examples)?" Store the answer as `DEPTH`. Also ask whether to keep the extracted text in the Library's private `.sources/` folder (default no). Wait for confirmation. "Analyze only" stops here. In that case, report the title, the authors, the chapters, and the 10–20 named ideas you expect.
 
 ## 5. Read without flooding context
 
-For each chapter, read only its range: `sed -n '<start>,<end>p' "$TEXT"`. To check that a name really appears in the book, use `grep -c -i '<name>' "$TEXT"`. Never read all of `TEXT` at once when `estimated_tokens` exceeds 50,000.
+Read one chapter at a time, in slices of at most 300 lines, dropping blank lines:
+
+```bash
+sed -n '<start>,<start+299>p' "$TEXT" | grep -v '^[[:space:]]*$'
+```
+
+A bigger slice can exceed the host's tool-output limit, and some hosts then save the overflow, raw book text, to a file outside `WORK` that cleanup never removes. If that happens anyway, tell the user the file's path in the report. To check that a name really appears in the book, use `grep -c -i '<name>' "$TEXT"`. Never read all of `TEXT` at once.
+
+If the text is missing code or formulas that the book shows as images, describe them in your own words. Never invent exact code.
 
 ## 6. Write the Book Note and Chapter Notes
 
