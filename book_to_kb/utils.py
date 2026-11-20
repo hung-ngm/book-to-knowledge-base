@@ -12,6 +12,7 @@ from collections import Counter
 
 import shutil
 import zipfile
+from collections.abc import Hashable
 from pathlib import Path
 
 from book_to_kb.exceptions import ExtractionError
@@ -150,6 +151,25 @@ _SENTENCE_END = re.compile(r"[.!?…:;\"'”’)\]]\s*$")
 # uppercase Roman numeral.  Lowercase ("i: Loomings") is only accepted inside
 # a markdown heading ("## i. introduction") to avoid false positives from
 # words that happen to be valid Roman numerals ("vi: the editor" → 6).
+# The text after a "N  " plain heading number that marks the line as a table
+# row: a lone ditto mark as a cell, or two or more column gaps (runs of 2+
+# spaces between cells).
+_TABLE_DITTO_CELL = re.compile(r'(?:^|\s)["〃](?:\s|$)')
+_COLUMN_GAP = re.compile(r"(?<=\S)\s{2,}(?=\S)")
+
+
+def _is_table_row_tail(tail: str) -> bool:
+    return bool(_TABLE_DITTO_CELL.search(tail)) or len(_COLUMN_GAP.findall(tail)) >= 2
+
+
+# A division that groups chapters and may restart their numbering
+# ("BOOK II.", "Volume 3", "PART IV"). `_PART_HEADER` lines already reach
+# `detect_structure` through `_chapter_number`; Book/Volume lines do not.
+_DIVISION_HEADING = re.compile(
+    r"^(?P<label>(?:book|part|volume)\s+(?:(?P<num>\d{1,3})|(?P<roman>[ivxlcdm]{1,7})))\b"
+    r"(?P<rest>.*)$",
+    re.IGNORECASE,
+)
 _ROMAN_HEAD = re.compile(r"^\s*([IVXLCDM]+)\s*[:.]\s+[A-ZÀ-Þ0-9\"“(]")
 _LC_MD_ROMAN = re.compile(r"^\s*#{1,6}\s+([ivxlcdm]+)\s*[:.]\s+[A-Za-zÀ-Þ\"“(]")
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
@@ -881,8 +901,17 @@ def _match_chapter_number(
     # Its first non-space character is the diff marker, which no chapter title
     # starts with, so the marker decides. Fenced blocks are skipped by the
     # caller; this covers code that arrives without fences. (Issue #237)
+    #
+    # A numeric table row has the same opening ('170  "    "    from   "   2.',
+    # "12  wheat      40      bushels"): its cells are ditto marks or are
+    # separated by further column-aligned runs of spaces, which a title never
+    # is. Either shape makes the line table data.
     plain = re.match(r"^([1-9]\d{0,2})\s{2,}(\S)", s)
-    if plain and plain.group(2) not in "+-":
+    if (
+        plain
+        and plain.group(2) not in "+-"
+        and not _is_table_row_tail(s[plain.start(2):])
+    ):
         return int(plain.group(1))
 
     m = _EXPLICIT_CHAPTER.match(s)
@@ -1219,7 +1248,10 @@ def _newline_line_count(text: str) -> int:
 
 
 def _heading_line_ranges(
-    text: str, lines: list[str], starts: list[int]
+    text: str,
+    lines: list[str],
+    starts: list[int],
+    prefixes: dict[int, str] | None = None,
 ) -> list[dict[str, int | str]]:
     """1-based inclusive ranges, one per chapter heading line in *starts*.
 
@@ -1228,7 +1260,10 @@ def _heading_line_ranges(
     corpus: pdftotext's form feeds and other separators `splitlines()` also
     breaks on would otherwise shift every later range. A chapter ends on the
     line before the next chapter's heading, or on the text's last line.
+    *prefixes* maps a start index to a label put before its title (the
+    division of a chapter whose numbering restarts, "BOOK II. CHAPTER I.").
     """
+    prefixes = prefixes or {}
     ordered = sorted(set(starts))
     if not ordered:
         return []
@@ -1245,9 +1280,12 @@ def _heading_line_ranges(
             end_line = newline_numbers[ordered[position + 1]] - 1
         else:
             end_line = last_line
+        title = _line_title_text(lines[index])
+        if index in prefixes:
+            title = f"{prefixes[index]} {title}"
         ranges.append(
             {
-                "title": _line_title_text(lines[index]),
+                "title": title,
                 "start_line": start_line,
                 "end_line": max(end_line, start_line),
             }
@@ -1255,15 +1293,11 @@ def _heading_line_ranges(
     return ranges
 
 
-def _numeric_chapter_start_lines(
-    lines: list[str], entries: list[tuple[int, int]]
-) -> list[int]:
-    """Pick one heading line per distinct chapter number.
+def _toc_like_positions(
+    lines: list[str], entries: list[tuple[int, Hashable]]
+) -> set[int]:
+    """Positions in *entries* whose heading line reads as a ToC row.
 
-    *entries* are (0-based line index, chapter number) in source order. The
-    count of distinct numbers is `chapters_detected`, so a number seen more than
-    once (a ToC row and the body heading, or a running page header) keeps one
-    line: the first occurrence that is not a ToC row, else its last occurrence.
     A ToC row has a leader ("....") or sits within `_TOC_CLUSTER_MAX_GAP`
     non-blank lines of another chapter heading line.
     """
@@ -1284,7 +1318,25 @@ def _numeric_chapter_start_lines(
             index, heading_indices[position + 1]
         ) <= _TOC_CLUSTER_MAX_GAP
 
-    occurrences: dict[int, list[int]] = {}
+    return {position for position in range(len(entries)) if toc_like(position)}
+
+
+def _numeric_chapter_start_lines(
+    lines: list[str], entries: list[tuple[int, Hashable]]
+) -> list[int]:
+    """Pick one heading line per distinct chapter key.
+
+    *entries* are (0-based line index, chapter key) in source order; the key is
+    the chapter number, or (division, number) when numbering restarts per
+    division. The count of distinct keys is `chapters_detected`, so a key seen
+    more than once (a ToC row and the body heading, or a running page header)
+    keeps one line: the first occurrence that is not a ToC row (see
+    `_toc_like_positions`), else its last occurrence.
+    """
+    heading_indices = [index for index, _ in entries]
+    toc_rows = _toc_like_positions(lines, entries)
+
+    occurrences: dict[Hashable, list[int]] = {}
     for position, (_, number) in enumerate(entries):
         occurrences.setdefault(number, []).append(position)
     starts = []
@@ -1293,10 +1345,122 @@ def _numeric_chapter_start_lines(
             chosen = positions[0]
         else:
             chosen = next(
-                (pos for pos in positions if not toc_like(pos)), positions[-1]
+                (pos for pos in positions if pos not in toc_rows), positions[-1]
             )
         starts.append(heading_indices[chosen])
     return sorted(starts)
+
+
+Division = tuple[tuple[str, int], str]
+
+
+def _division_heading(title: str) -> Division | None:
+    """((kind, number), label) for a "BOOK II." / "Part 3" / "Volume IV" line.
+
+    *title* is a stripped line with any Markdown heading marker removed. The
+    tail must read like a heading (`_HEADING_TAIL`), so "Book I of the
+    treatise..." is prose. The label is the kind and numeral as written plus a
+    period ("BOOK II.", "Part 3.") — the prefix a restarted chapter's range
+    title carries.
+    """
+    m = _DIVISION_HEADING.match(title)
+    if not m or not _HEADING_TAIL.match(m.group("rest")):
+        return None
+    number = int(m.group("num")) if m.group("num") else _roman_to_int(m.group("roman"))
+    if number is None:
+        return None
+    label = m.group("label")
+    return (label.split()[0].lower(), number), f"{label}."
+
+
+def _heading_style(heading: str) -> str:
+    """Coarse heading form, so restarts are judged within one style.
+
+    "CHAPTER XI." and "Chapter 3" are "chapter"; a bare "12  Title" (or a
+    table row the plain matcher let through) is "digit"; anything else, such
+    as a numbered "I. The ..." paragraph, is "other".
+    """
+    title = _MD_HEADING_PREFIX.sub("", heading.strip())
+    m = _EXPLICIT_CHAPTER.match(title)
+    if m:
+        return title.split(None, 1)[0].rstrip(".").lower()
+    return "digit" if title[:1].isdigit() else "other"
+
+
+def _division_keyed_entries(
+    lines: list[str],
+    entries: list[tuple[int, int]],
+    division_marks: list[tuple[int, Division]],
+) -> tuple[list[tuple[int, Hashable]], dict[int, str]]:
+    """Key chapters by (division, number) when numbering restarts per division.
+
+    *division_marks* are (line index, division) for every division heading, in
+    source order. A division kind (book, part, volume) restarts the numbering
+    when a chapter's number is not above the previous chapter of the same
+    heading style and that kind's heading is the last division heading between
+    the two: "BOOK II." before Book II's "CHAPTER I.". Only those kinds key
+    chapters, so a "PART I." that subdivides a chapter is ignored, and a ToC
+    that repeats the division rows maps onto the same keys as the body.
+
+    Keying applies only when some chapter number then sits under two different
+    divisions; otherwise the entries come back unchanged with no labels, so
+    books without restarts keep their counts and ranges. A chapter row with no
+    division above it that reads as a ToC row is dropped, since its body
+    heading sits under a division. Labels map a heading line index to the
+    division label its range title is prefixed with ("BOOK II.").
+    """
+    def last_division(lo: int, hi: int) -> Division | None:
+        found = None
+        for index, division in division_marks:
+            if index >= hi:
+                break
+            if index > lo:
+                found = division
+        return found
+
+    restarting: set[str] = set()
+    previous: dict[str, tuple[int, int]] = {}
+    for index, number in entries:
+        style = _heading_style(lines[index])
+        if style in previous and number <= previous[style][1]:
+            division = last_division(previous[style][0], index)
+            if division is not None:
+                restarting.add(division[0][0])
+        previous[style] = (index, number)
+    if not restarting:
+        return list(entries), {}
+
+    current: Division | None = None
+    marks = iter(division_marks)
+    mark = next(marks, None)
+    entry_divisions: list[Division | None] = []
+    for index, _ in entries:
+        while mark is not None and mark[0] < index:
+            if mark[1][0][0] in restarting:
+                current = mark[1]
+            mark = next(marks, None)
+        entry_divisions.append(current)
+
+    seen_under: dict[int, set[tuple[str, int]]] = {}
+    for (_, number), division in zip(entries, entry_divisions):
+        if division is not None:
+            seen_under.setdefault(number, set()).add(division[0])
+    if not any(len(keys) > 1 for keys in seen_under.values()):
+        return list(entries), {}
+
+    toc_rows = _toc_like_positions(lines, entries)
+    keyed: list[tuple[int, Hashable]] = []
+    labels: dict[int, str] = {}
+    for position, ((index, number), division) in enumerate(
+        zip(entries, entry_divisions)
+    ):
+        if division is None:
+            if position not in toc_rows:
+                keyed.append((index, (None, number)))
+            continue
+        keyed.append((index, (division[0], number)))
+        labels[index] = division[1]
+    return keyed, labels
 
 
 def detect_structure(text: str) -> dict:
@@ -1314,6 +1478,11 @@ def detect_structure(text: str) -> dict:
     tail is judged against the line above it so a wrapped cross-reference
     ("...as we cover in / Chapter 6. Closures create types...") is not counted
     while a heading on its own line still is. (Issue #237)
+
+    When chapter numbers restart under a division heading ("BOOK I." ...
+    "CHAPTER XI.", "BOOK II." "CHAPTER I."), chapters are counted per
+    (division, number) instead and their range titles carry the division:
+    "BOOK II. CHAPTER I." (see `_division_keyed_entries`).
     """
     lines = text.splitlines()
     fenced = _closed_fence_line_numbers(lines)
@@ -1326,6 +1495,7 @@ def detect_structure(text: str) -> dict:
     part_headings = []
     part_numbers = set()
     part_entries: list[tuple[int, int]] = []
+    division_marks: list[tuple[int, Division]] = []
     prev = ""  # previous non-blank line; cleared by blanks and fences
     for index, line in enumerate(lines):
         if index in fenced:
@@ -1336,18 +1506,24 @@ def detect_structure(text: str) -> dict:
             prev = ""
             continue
         num = _chapter_number(line, prev)
-        if num is not None:
-            title = _MD_HEADING_PREFIX.sub("", s)
-            if _PART_HEADER.match(title):
+        title = _MD_HEADING_PREFIX.sub("", s)
+        if num is not None and not _PART_HEADER.match(title):
+            numbers.add(num)
+            headings.append(s)
+            entries.append((index, num))
+        else:
+            if num is not None:
                 part_numbers.add(num)
                 part_headings.append(s)
                 part_entries.append((index, num))
-            else:
-                numbers.add(num)
-                headings.append(s)
-                entries.append((index, num))
+            division = _division_heading(title)
+            if division is not None:
+                division_marks.append((index, division))
         prev = s
-    numeric_count = len(numbers)
+    keyed_entries, division_labels = _division_keyed_entries(
+        lines, entries, division_marks
+    )
+    numeric_count = len({key for _, key in keyed_entries}) if division_labels else len(numbers)
     # Fall back to structural (Markdown/AsciiDoc) headings only when no numeric
     # "Chapter N" headings were found, so books with real chapters are unaffected.
     #
@@ -1361,7 +1537,7 @@ def detect_structure(text: str) -> dict:
         chapters_detected = numeric_count
         chapters_method = "numeric"
         chapter_headings_sample = headings[:10]
-        chapter_starts = _numeric_chapter_start_lines(lines, entries)
+        chapter_starts = _numeric_chapter_start_lines(lines, keyed_entries)
     else:
         # A single stray number (e.g. a Roman numeral inside an example paper
         # reproduced in the book, or a lone "Part 1") is not enough to suppress
@@ -1376,7 +1552,7 @@ def detect_structure(text: str) -> dict:
         if not numeric_count and not structural_count:
             numeric_count = len(part_numbers)
             headings = part_headings
-            entries = part_entries
+            keyed_entries = list(part_entries)
         chapters_detected = max(numeric_count, structural_count)
         chapters_method = (
             "structural" if structural_count > numeric_count
@@ -1391,7 +1567,7 @@ def detect_structure(text: str) -> dict:
         chapter_starts = (
             [index for _, index in structural_entries]
             if chapters_method == "structural"
-            else _numeric_chapter_start_lines(lines, entries)
+            else _numeric_chapter_start_lines(lines, keyed_entries)
         )
 
     # Look for ToC indicators in the first ~30k chars (multilingual; see _TOC_PATTERN)
@@ -1402,7 +1578,12 @@ def detect_structure(text: str) -> dict:
         "chapters_method": chapters_method,
         "chapter_headings_sample": chapter_headings_sample,
         # Same count as chapters_detected; line numbers index into *text*.
-        "chapter_ranges": _heading_line_ranges(text, lines, chapter_starts),
+        "chapter_ranges": _heading_line_ranges(
+            text,
+            lines,
+            chapter_starts,
+            division_labels if chapters_method == "numeric" else None,
+        ),
         "has_toc": has_toc,
     }
 
