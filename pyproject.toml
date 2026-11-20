@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "book-to-knowledge-base"
+version = "0.1.0"
+description = "Turn books into one linked markdown knowledge base for humans and agents."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[project.scripts]
+book-to-knowledge-base = "book_to_kb.cli:main"
+
+[project.optional-dependencies]
+html = ["trafilatura"]
+epub = ["ebooklib", "beautifulsoup4"]
+pdf = ["pdf-inspector>=1.15,<2", "pypdf", "pdfminer.six"]
+docx = ["python-docx"]
+rtf = ["striprtf"]
+technical = ["docling"]
+all = [
+    "trafilatura",
+    "ebooklib",
+    "beautifulsoup4",
+    "pdf-inspector>=1.15,<2",
+    "pypdf",
+    "pdfminer.six",
+    "python-docx",
+    "striprtf",
+    "docling"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["book_to_kb"]
+
+[tool.ruff]
+target-version = "py39"
+extend-exclude = ["refs"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["refs", ".venv"]

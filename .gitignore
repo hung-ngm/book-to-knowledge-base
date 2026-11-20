@@ -1,0 +1,11 @@
+refs/
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
+uv.lock
+.pytest_cache/
+.sources/
+.e2e-work/
