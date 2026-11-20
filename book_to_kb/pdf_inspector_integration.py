@@ -50,7 +50,7 @@ def inspect_pdf(path: str | Path) -> tuple[str | None, dict[str, Any] | None]:
     The returned Markdown is intentionally conservative: it is only considered
     usable when pdf-inspector classifies the document as native text, reports no
     OCR-routed pages or encoding problems, and gives a high confidence score.
-    All other cases return metadata only so the existing Book-to-Skill fallback
+    All other cases return metadata only so the existing text-layer fallback
     chain remains authoritative.
     """
     try:

@@ -2203,34 +2203,9 @@ def write_pdf_page_sidecar(sources: list[dict], output_dir: Path) -> Path | None
 
 
 def print_intro() -> None:
-    """Two lines of attribution at the start of every run.
-
-    Printed here rather than only in SKILL.md so it shows however the agent
-    invokes extraction. States who maintains the project without asking for
-    anything — the ask belongs at the end, after the work is delivered.
-    """
+    """Name the tool on stderr at the start of every run."""
     sys.stderr.write(
-        "book-to-knowledge-base · turns books into a linked knowledge base\n"
-        "extractor vendored from github.com/virgiliojr94/book-to-skill (MIT)\n\n"
-    )
-
-
-def print_support_note() -> None:
-    """One closing line about funding, printed only after a successful run.
-
-    Deliberately at the end and deliberately conditional: the reader has just
-    received something that worked, and the sentence says what the money is
-    for rather than asking for it. Never printed when extraction failed —
-    nobody should be asked to fund what just wasted their time.
-
-    Written to stdout, with the rest of the closing report: stderr is
-    unbuffered and stdout is not when the run is piped (which is how an agent
-    captures it), so mixing the two puts the closing line at the top.
-    """
-    print(
-        "\n   Extraction by book-to-skill (github.com/virgiliojr94/book-to-skill)."
-        "\n   If it saves you work, you can fund its upkeep: "
-        "github.com/sponsors/virgiliojr94"
+        "book-to-knowledge-base · turns books into a linked knowledge base\n\n"
     )
 
 
@@ -2530,5 +2505,3 @@ def main():
         print(f"\n   WARNING: {len(errors)} source(s) skipped due to errors:")
         for path, err in errors:
             print(f"     - {path.name}: {err}")
-    else:
-        print_support_note()

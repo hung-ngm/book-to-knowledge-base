@@ -1,6 +1,6 @@
 """Regression test: keep bytecode out of the deployed skill, from entry points.
 
-When book-to-skill is installed as an agent skill, the skill *is* the source
+When this skill is installed as an agent skill, the skill *is* the source
 tree — it is cloned or unpacked into `~/.config/opencode/skills/<name>/` (or
 another host root) and executed from there. Any `__pycache__` written on first
 run ends up shipped inside the skill: extra files to scan, noise in diffs, and
@@ -41,7 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # appears, this list — and the guard it asserts — must be revisited, and
 # `test_entry_point_list_still_matches_the_source_tree` says so.
 #
-# `extract.py`/`cli.py` emit the attribution banner on stderr (see
+# `extract.py`/`cli.py` emit the intro line on stderr (see
 # `utils.print_intro`), so the presence check reads stdout + stderr; the point
 # is that output is non-empty and expected, not that it lands on a stream.
 ENTRY_POINTS = {
@@ -240,7 +240,7 @@ def test_importing_the_library_does_not_mutate_the_embedding_process(deployed):
     """Importing the package must not flip `sys.dont_write_bytecode`.
 
     This is the direct regression guard for the policy leaking out of a library
-    import: an embedding host that imports book-to-skill keeps its own global
+    import: an embedding host that imports book_to_kb keeps its own global
     interpreter state. Run in a subprocess whose CWD/PYTHONPATH are the isolated
     copy, so it cannot silently import the developer's checkout instead.
     """
