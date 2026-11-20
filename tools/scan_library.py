@@ -8,11 +8,7 @@ import os
 import re
 import sys
 
-# Keep a deployed skill directory clean: importing the package below would
-# otherwise write __pycache__/*.pyc beside the sources, leaving build artifacts
-# inside the skill. `__name__` is bound before the module body runs, so this
-# holds for a direct invocation and never mutates an embedding process that
-# merely imports this module. Must be set BEFORE `book_to_kb` is imported.
+# Keep __pycache__ out of an installed skill. Set before importing book_to_kb.
 if __name__ == "__main__":
     sys.dont_write_bytecode = True
 from dataclasses import dataclass
@@ -29,10 +25,7 @@ BOOKS_DIR = "books"
 CONCEPTS_DIR = "concepts"
 SOURCES_DIR = ".sources"
 
-# Reuse the extractor's invisible-code-point set instead of duplicating it, so
-# the two injection defenses cannot drift apart. They previously did: the
-# extractor did not strip U+2060 while this scanner flagged it, so a generated
-# note was warned about a character extraction was meant to have removed.
+# Share the extractor's invisible-character set so the two defenses agree.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from book_to_kb.sanitize import is_invisible_codepoint  # noqa: E402
 

@@ -46,6 +46,42 @@ You need Python 3.9 or later and an agent host that supports [Agent Skills](http
 
 4. Start a new agent session so the host loads the skill.
 
+### Skills folder for each host
+
+Each host scans its own skills folders. One clone in `~/.agents/skills` covers most hosts:
+
+| Host | Folder it reads |
+|---|---|
+| Codex, Amp | `~/.agents/skills` |
+| Copilot CLI | `~/.agents/skills` or `~/.copilot/skills` |
+| OpenCode | `~/.agents/skills` or `~/.config/opencode/skills` |
+| OpenClaw | `~/.agents/skills` with the default state folder. Otherwise `$OPENCLAW_STATE_DIR/skills` |
+| Hermes Agent | `${HERMES_HOME:-$HOME/.hermes}/skills/<category>` |
+| Claude Code | `~/.claude/skills` only. Link it as in step 2 |
+
+For a host that does not read `~/.agents/skills`, link the clone into that host's folder:
+
+```bash
+ln -sfn ~/.agents/skills/book-to-knowledge-base <host skills folder>/book-to-knowledge-base
+```
+
+### Install for one project
+
+To make the skill available only inside one project, put it in that project's `.agents/skills` folder instead:
+
+```bash
+cd <your project>
+git clone https://github.com/hung-ngm/book-to-knowledge-base.git .agents/skills/book-to-knowledge-base
+```
+
+For Claude Code, link it into the project's `.claude/skills` folder:
+
+```bash
+mkdir -p .claude/skills && ln -sfn ../../.agents/skills/book-to-knowledge-base .claude/skills/book-to-knowledge-base
+```
+
+The Library still goes to `$BOOK_KB_LIBRARY` or `~/library`, not into the project, unless you name a path.
+
 To have an agent install it, give the agent this repository URL and ask it to follow the **Install** section of this README.
 
 ## Use
@@ -88,6 +124,6 @@ tests/                # pytest suite
 
 Run the tests with `python3 -m pytest`.
 
-## Credit and license
+## License
 
-The text extractor in `book_to_kb/` comes from [book-to-skill](https://github.com/virgiliojr94/book-to-skill) by virgiliojr94. MIT license, see [LICENSE.md](LICENSE.md). The license covers this code, not the books you process with it.
+MIT. See [LICENSE.md](LICENSE.md). The license covers this code, not the books you process with it.

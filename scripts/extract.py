@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
-"""
-Extract text from a document file for book-to-knowledge-base processing.
-Backward-compatible entrypoint wrapper.
-"""
+"""Extract clean text and chapter ranges from one or more book files."""
 
 import os
 import sys
 
-# Keep a deployed skill directory clean: importing the package below would
-# otherwise write __pycache__/*.pyc beside the sources, leaving build artifacts
-# inside the skill. `__name__` is bound before the module body runs, so this
-# holds for a direct invocation and never mutates an embedding process that
-# merely imports this module. Must be set BEFORE `book_to_kb` is imported.
+# Keep __pycache__ out of an installed skill. Set before importing book_to_kb.
 if __name__ == "__main__":
     sys.dont_write_bytecode = True
 
-# Force UTF-8 stdout/stderr so extracted text, the attribution line's separators
-# and the dependency-check glyphs (✓ / ✗) don't raise UnicodeEncodeError on Windows
-# consoles that default to a legacy code page (e.g. GBK / cp936).
+# Force UTF-8 output so Windows consoles on a legacy code page do not fail.
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
-        # Non-standard or closed stdio stream (e.g. captured test streams) cannot reconfigure.
         pass
 
-# Ensure the project root directory (where the 'book_to_kb' package lives) is in sys.path
-# so the modular package can be imported reliably regardless of the working directory.
+# Import book_to_kb from the skill folder, whatever the working directory.
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from book_to_kb.cli import main

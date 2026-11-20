@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Library commands: init, concepts, index, validate, remove-book.
+"""Library commands: init, concepts, index, validate, relink, reader-skill, remove-book.
 
 Run as a script, never `python -m book_to_kb...`: Python compiles a package's
 __main__ before any of our code can turn bytecode off, which would leave
