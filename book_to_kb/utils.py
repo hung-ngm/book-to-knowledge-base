@@ -1486,6 +1486,28 @@ def _division_keyed_entries(
     return keyed, labels
 
 
+_PAGE_NUMBER_HEADER = re.compile(r"^\s*(\d{1,4})\s{2,}(\S.*?)\s*$")
+
+
+def _running_header_lines(lines: list[str]) -> set[int]:
+    """Indices of running page headers: "<page>   <title>" with one title on many pages.
+
+    pdftotext keeps each page's header line ("26   Chapter 1: Prerequisites").
+    The page number reads like a bare "<number>  <Title>" chapter heading, so
+    each page would count as a chapter. A real numbered heading carries its
+    title once; a running header repeats it under different page numbers.
+    """
+    pages: dict[str, set[str]] = {}
+    where: dict[str, list[int]] = {}
+    for index, line in enumerate(lines):
+        m = _PAGE_NUMBER_HEADER.match(line)
+        if m:
+            title = m.group(2).casefold()
+            pages.setdefault(title, set()).add(m.group(1))
+            where.setdefault(title, []).append(index)
+    return {i for title, numbers in pages.items() if len(numbers) >= 2 for i in where[title]}
+
+
 def detect_structure(text: str) -> dict:
     """Detect chapter count and table of contents presence.
 
@@ -1510,7 +1532,7 @@ def detect_structure(text: str) -> dict:
     `_chapter_label_marker`).
     """
     lines = text.splitlines()
-    fenced = _closed_fence_line_numbers(lines)
+    skipped = _closed_fence_line_numbers(lines) | _running_header_lines(lines)
 
     headings = []
     # (line index, chapter number) for every counted heading line, the
@@ -1522,7 +1544,7 @@ def detect_structure(text: str) -> dict:
     division_marks: list[tuple[int, Division]] = []
     prev = ""  # previous non-blank line; cleared by blanks and fences
     for index, line in enumerate(lines):
-        if index in fenced:
+        if index in skipped:
             prev = ""
             continue
         s = line.strip()
