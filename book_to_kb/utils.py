@@ -123,7 +123,9 @@ _EXPLICIT_CHAPTER = re.compile(
 # Capitalized title word. A lowercase continuation (“Chapter 6 explores...”,
 # “Chapter 8 are relevant...”) is prose / a cross-reference, not a heading.
 # The uppercase class is À-Þ so titles starting with Ü/Û (common in German, e.g. “Überblick”) are recognized.
-_HEADING_TAIL = re.compile(r"^\s*$|^\s*[.:\-—–]|^\s+(?![a-z])")
+# A marker glued to the numeral ("CHAPTER V*.", "CHAPTER VIII.*") is part of
+# the chapter's label; see `_chapter_label_marker`.
+_HEADING_TAIL = re.compile(r"^\s*$|^\s*[.:\-—–*†‡]|^\s+(?![a-z])")
 # Same tail once a Markdown/AsciiDoc marker has been stripped. A lowercase word
 # there is the title ("## Chapter 1 title"), not the bare-line cross-reference
 # the guard above exists to reject ("Chapter 6 explores...").
@@ -1351,6 +1353,27 @@ def _numeric_chapter_start_lines(
     return sorted(starts)
 
 
+# "*", "†" or "‡" right after a chapter numeral, before or after its period.
+_LABEL_MARKER = re.compile(r"^\.?([*†‡]+)")
+
+
+def _chapter_label_marker(line: str) -> str:
+    """The marker an explicit chapter heading puts on its numeral, or "".
+
+    Books that insert a chapter without renumbering label it with the previous
+    number plus a marker: Ricardo's "CHAPTER V." / "ON WAGES." is followed by
+    "CHAPTER V*." / "ON PROFITS.". The marker is part of the label the book
+    gives the chapter, so it is part of the chapter key: "V" and "V*" are two
+    chapters, while a ToC row or running header repeating "V*" is the same one.
+    """
+    title = _MD_HEADING_PREFIX.sub("", line.strip())
+    m = _EXPLICIT_CHAPTER.match(title)
+    if not m:
+        return ""
+    marker = _LABEL_MARKER.match(m.group("rest"))
+    return marker.group(1) if marker else ""
+
+
 Division = tuple[tuple[str, int], str]
 
 
@@ -1482,13 +1505,14 @@ def detect_structure(text: str) -> dict:
     When chapter numbers restart under a division heading ("BOOK I." ...
     "CHAPTER XI.", "BOOK II." "CHAPTER I."), chapters are counted per
     (division, number) instead and their range titles carry the division:
-    "BOOK II. CHAPTER I." (see `_division_keyed_entries`).
+    "BOOK II. CHAPTER I." (see `_division_keyed_entries`). A marker on the
+    numeral ("CHAPTER V*." after "CHAPTER V.") makes a chapter of its own (see
+    `_chapter_label_marker`).
     """
     lines = text.splitlines()
     fenced = _closed_fence_line_numbers(lines)
 
     headings = []
-    numbers = set()
     # (line index, chapter number) for every counted heading line, the
     # boundaries `chapter_ranges` is built from.
     entries: list[tuple[int, int]] = []
@@ -1508,7 +1532,6 @@ def detect_structure(text: str) -> dict:
         num = _chapter_number(line, prev)
         title = _MD_HEADING_PREFIX.sub("", s)
         if num is not None and not _PART_HEADER.match(title):
-            numbers.add(num)
             headings.append(s)
             entries.append((index, num))
         else:
@@ -1523,7 +1546,12 @@ def detect_structure(text: str) -> dict:
     keyed_entries, division_labels = _division_keyed_entries(
         lines, entries, division_marks
     )
-    numeric_count = len({key for _, key in keyed_entries}) if division_labels else len(numbers)
+    # A numeral marker ("V*") keys a chapter apart from the unmarked number.
+    keyed_entries = [
+        (index, (key, marker)) if (marker := _chapter_label_marker(lines[index])) else (index, key)
+        for index, key in keyed_entries
+    ]
+    numeric_count = len({key for _, key in keyed_entries})
     # Fall back to structural (Markdown/AsciiDoc) headings only when no numeric
     # "Chapter N" headings were found, so books with real chapters are unaffected.
     #

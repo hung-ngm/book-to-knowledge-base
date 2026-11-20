@@ -149,3 +149,85 @@ def test_ditto_table_inside_roman_chapters_adds_no_ranges():
     assert [r["title"] for r in result["chapter_ranges"]] == [
         "CHAPTER I.", "CHAPTER II."
     ]
+
+
+# Editorial misnumbering: a book inserts a chapter and labels it with the
+# previous number plus a marker ("CHAPTER V." then "CHAPTER V*."), rather than
+# renumbering. The marker is part of the chapter's label, so the starred
+# heading is a chapter of its own; a ToC row or running header that repeats a
+# label (marker included) is still the same chapter.
+
+
+def _starred_book(star: str = "5*") -> str:
+    return "".join(
+        f"Chapter {label}\n{title}\n\n" + _body(label) + "\n\n"
+        for label, title in (
+            ("4", "On Price"),
+            ("5", "On Wages"),
+            (star, "On Profits"),
+            ("6", "On Rent"),
+        )
+    )
+
+
+def test_starred_duplicate_number_is_its_own_chapter():
+    text = _starred_book()
+    result = detect_structure(text)
+
+    assert result["chapters_detected"] == 4
+    ranges = result["chapter_ranges"]
+    assert [r["title"] for r in ranges] == [
+        "Chapter 4", "Chapter 5", "Chapter 5*", "Chapter 6"
+    ]
+    lines = _lines(text)
+    assert lines[ranges[2]["start_line"] - 1] == "Chapter 5*"
+    assert lines[ranges[1]["end_line"] - 1] != "Chapter 5*"
+
+
+def test_marker_after_numeral_period_is_its_own_chapter():
+    text = _starred_book("5.*")
+    result = detect_structure(text)
+
+    assert result["chapters_detected"] == 4
+    assert [r["title"] for r in result["chapter_ranges"]][2] == "Chapter 5.*"
+
+
+def test_running_header_repeating_chapter_and_title_stays_one_chapter():
+    pages = []
+    for number, title in ((4, "On Price"), (5, "On Wages"), (6, "On Rent")):
+        for page in range(3):
+            pages.append(
+                f"CHAPTER {number} {title}\n\n" + _body(f"{number} p{page}") + "\n\f"
+            )
+    result = detect_structure("".join(pages))
+
+    assert result["chapters_detected"] == 3
+    assert [r["title"] for r in result["chapter_ranges"]] == [
+        "CHAPTER 4 On Price", "CHAPTER 5 On Wages", "CHAPTER 6 On Rent"
+    ]
+
+
+def test_toc_listing_starred_chapter_adds_no_ranges():
+    toc = (
+        "CONTENTS\n\n"
+        "Chapter 4. On Price\n"
+        "Chapter 5. On Wages\n"
+        "Chapter 5*. On Profits\n"
+        "Chapter 6. On Rent\n\n\n"
+    )
+    body = (
+        "Chapter 4.\nON PRICE.\n\n" + _body("4") + "\n\n"
+        "Chapter 5.\nON WAGES.\n\n" + _body("5") + "\n\n"
+        "Chapter 5*.\nON PROFITS.\n\n" + _body("5*") + "\n\n"
+        "Chapter 6.\nON RENT.\n\n" + _body("6")
+    )
+    text = toc + body
+    result = detect_structure(text)
+
+    assert result["chapters_detected"] == 4
+    ranges = result["chapter_ranges"]
+    assert [r["title"] for r in ranges] == [
+        "Chapter 4.", "Chapter 5.", "Chapter 5*.", "Chapter 6."
+    ]
+    toc_end = toc.count("\n")
+    assert all(r["start_line"] > toc_end for r in ranges)
