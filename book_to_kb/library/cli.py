@@ -23,6 +23,12 @@ def main(argv: list[str] | None = None) -> int:
         ("validate", "check links, schema, aliases, and freshness; exit 1 on errors"),
     ):
         sub.add_parser(name, help=help_text).add_argument("library", type=Path)
+    p_relink = sub.add_parser("relink", help="rewrite wikilink targets under a folder from an old<TAB>new map")
+    p_relink.add_argument("directory", type=Path)
+    p_relink.add_argument("map", type=Path)
+    p_reader = sub.add_parser("reader-skill", help="write a Reader Skill that points agents at this Library")
+    p_reader.add_argument("library", type=Path)
+    p_reader.add_argument("skills_root", type=Path, help="folder that holds skills, e.g. ~/.agents/skills")
     p_rm = sub.add_parser("remove-book", help="delete a Book and its Contributions")
     p_rm.add_argument("library", type=Path)
     p_rm.add_argument("book")
@@ -32,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "init":
             root = commands.init(args.library, args.name, args.language)
             print(f"Library ready: {root}")
+            return 0
+        if args.command == "relink":
+            changed = commands.relink(args.directory, commands.read_link_map(args.map))
+            print(f"{len(changed)} file(s) relinked")
             return 0
         lib = load(args.library)
         if args.command == "concepts":
@@ -46,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
             errors = sum(f.severity == "error" for f in findings)
             print(f"{errors} error(s), {len(findings) - errors} warning(s)")
             return 1 if errors else 0
+        elif args.command == "reader-skill":
+            print(f"Reader Skill: {commands.write_reader_skill(lib, args.skills_root)}")
         elif args.command == "remove-book":
             report = commands.remove_book(lib, args.book)
             print(f"Removed {args.book}.")
@@ -55,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  REWRITE NEEDED (prose still links the removed Book): {', '.join(report.stale_prose)}")
                 return 2
     except LibraryError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     except KeyError as exc:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -300,3 +302,46 @@ def test_unparseable_frontmatter_names_the_file(library):
 def test_missing_library_json_is_reported(tmp_path, capsys):
     assert main(["validate", str(tmp_path)]) == 1
     assert "not a Library" in capsys.readouterr().err
+
+
+# --- relink ---
+
+
+def test_relink_rewrites_targets_and_keeps_labels_and_headings(library):
+    chapter = library / "books/alpha/alpha-ch01.md"
+    write(library, "books/alpha/alpha-ch01.md", chapter.read_text() + "\nSee [[loop-x|the loop]] and [[loop-x#Why]] and [[loop-xy]].\n")
+    link_map = library / "map.tsv"
+    link_map.write_text("# proposed -> final\nloop-x\treinforcing-loop\n")
+
+    assert main(["relink", str(library / "books/alpha"), str(link_map)]) == 0
+    text = chapter.read_text()
+    assert "[[reinforcing-loop|the loop]]" in text
+    assert "[[reinforcing-loop#Why]]" in text
+    assert "[[loop-xy]]" in text
+    assert commands.relink(library / "books/alpha", {"loop-x": "reinforcing-loop"}) == []
+
+
+def test_relink_rejects_a_malformed_map(library, capsys):
+    bad = library / "map.tsv"
+    bad.write_text("Loop X -> reinforcing-loop\n")
+    assert main(["relink", str(library), str(bad)]) == 1
+    assert "expected 'old-slug<TAB>new-slug'" in capsys.readouterr().err
+
+
+# --- reader skill ---
+
+
+def test_reader_skill_names_the_library_and_its_books(library, tmp_path):
+    path = commands.write_reader_skill(load(library), tmp_path / "skills")
+    text = path.read_text()
+
+    assert path == (tmp_path / "skills/test-library-library/SKILL.md").resolve()
+    assert text.startswith("---\nname: test-library-library\ndescription: \"Knowledge base of 2 book(s): Alpha Book; Beta Book.")
+    assert "such as Reinforcing Loop, Balancing Loop." in text
+    assert f"`{library.resolve()}/AGENTS.md`" in text
+    assert commands.write_reader_skill(load(library), tmp_path / "skills") == path
+
+    validator = Path(sys.executable).parent / "agentskills"
+    if validator.exists():
+        result = subprocess.run([str(validator), "validate", str(path.parent)], capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr

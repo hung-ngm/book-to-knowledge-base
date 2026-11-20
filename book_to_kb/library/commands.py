@@ -291,6 +291,86 @@ def validate(lib: Library) -> list[Finding]:
     return found
 
 
+# --- reader skill ---
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.casefold()).strip("-") or "library"
+
+
+def reader_skill_name(lib: Library) -> str:
+    return f"{_slug(lib.config.name)}-library"[:64].strip("-")
+
+
+def render_reader_skill(lib: Library) -> str:
+    name = reader_skill_name(lib)
+    titles = [_title(b) for _, b in sorted(lib.books.items(), key=lambda kv: _title(kv[1]).casefold())]
+    shared = sorted(lib.concepts.values(), key=lambda c: (-len(c.contributions), _title(c).casefold()))
+    topics = [_title(c) for c in shared[:12]]
+    description = (
+        f"Knowledge base of {len(titles)} book(s): {'; '.join(titles) or 'none yet'}. "
+        f"Use to answer questions with these books' ideas, compare authors, or look up concepts"
+        + (f" such as {', '.join(topics)}." if topics else ".")
+    )
+    if len(description) > 1024:
+        description = description[:1020].rsplit(" ", 1)[0] + " ..."
+    description = description.replace('"', "'")
+    return f"""---
+name: {name}
+description: "{description}"
+---
+
+# {lib.config.name}
+
+The Library lives at `{lib.root}`. It is plain markdown, written in `{lib.config.language}`.
+
+1. Read `{lib.root}/AGENTS.md` once: it explains the layout.
+2. To answer a question, grep `{lib.root}/glossary.md` for the term, open the Concept note it points to, then follow its chapter links.
+3. To compare authors, read each `## In [[<book>]]` section of a Concept and its `## Tensions`.
+4. Cite the Book and chapter for every claim. Say so when the Library does not cover something.
+
+This skill only reads. To add or remove a Book, use the `book-to-knowledge-base` skill.
+"""
+
+
+def write_reader_skill(lib: Library, skills_root: Path) -> Path:
+    path = skills_root.expanduser().resolve() / reader_skill_name(lib) / "SKILL.md"
+    write_if_changed(path, render_reader_skill(lib))
+    return path
+
+
+# --- relink ---
+
+
+def read_link_map(path: Path) -> dict[str, str]:
+    """Parse 'old<TAB>new' lines; blank lines and '#' comments are skipped."""
+    mapping = {}
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) != 2 or not all(SLUG_RE.match(x.strip()) for x in parts):
+            raise ValueError(f"{path}:{lineno}: expected 'old-slug<TAB>new-slug'")
+        mapping[parts[0].strip()] = parts[1].strip()
+    return mapping
+
+
+def relink(directory: Path, mapping: dict[str, str]) -> list[Path]:
+    """Rewrite [[old...]] link targets to [[new...]] in every note under *directory*."""
+    pattern = re.compile(r"\[\[([^\]|#]+)(?=[\]|#])")
+
+    def swap(match: re.Match) -> str:
+        target = match.group(1).strip()
+        return "[[" + mapping.get(target, match.group(1))
+
+    changed = []
+    for path in sorted(directory.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if write_if_changed(path, pattern.sub(swap, text)):
+            changed.append(path)
+    return changed
+
+
 # --- remove-book ---
 
 
