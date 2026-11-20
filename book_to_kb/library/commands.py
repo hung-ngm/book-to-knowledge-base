@@ -99,11 +99,15 @@ def _title(note) -> str:
     return str(note.meta.get("title", note.stem))
 
 
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
 def render_index(lib: Library) -> str:
     out = [GENERATED, "", f"# {lib.config.name}", ""]
     out.append(
-        f"Library Language: `{lib.config.language}` · {len(lib.books)} Books · "
-        f"{len(lib.chapters)} Chapter Notes · {len(lib.concepts)} Concepts"
+        f"Library Language: `{lib.config.language}` · {_count(len(lib.books), 'Book')} · "
+        f"{_count(len(lib.chapters), 'Chapter Note')} · {_count(len(lib.concepts), 'Concept')}"
     )
     out += ["", "## Books", ""]
     if lib.books:
@@ -124,7 +128,7 @@ def render_index(lib: Library) -> str:
         out += [f"### {kind} ({len(members)})", ""]
         for c in members:
             aliases = c.meta.get("aliases") or []
-            aka = f" · aka {', '.join(aliases)}" if aliases else ""
+            aka = f" · aka {'; '.join(aliases)}" if aliases else ""
             books = len(c.contributions)
             out.append(f"- [[{c.stem}|{_title(c)}]]{aka} · {books} book{'s' if books != 1 else ''}")
         out.append("")
@@ -390,6 +394,22 @@ def _drop_sections(body: str, drop) -> str:
     return "".join(kept)
 
 
+def _prune_related(body: str, gone: set[str]) -> str:
+    """Drop `## Related` bullets that point at removed notes, and the heading if none remain."""
+    kept = []
+    for heading, text in sections(body):
+        if heading == "## Related":
+            lines = [
+                line for line in text.splitlines(keepends=True)
+                if not (line.startswith("- ") and wikilinks(line)[:1] and wikilinks(line)[0] in gone)
+            ]
+            if not any(line.startswith("- ") for line in lines):
+                continue
+            text = "".join(lines)
+        kept.append(f"{heading}\n{text}" if heading else text)
+    return "".join(kept)
+
+
 def remove_book(lib: Library, book: str) -> RemoveReport:
     if book not in lib.books:
         raise KeyError(f"no Book {book!r} in this Library")
@@ -411,8 +431,11 @@ def remove_book(lib: Library, book: str) -> RemoveReport:
                     return True
                 return single and heading == "## Tensions"
 
+            body = _drop_sections(body, drop)
+        body = _prune_related(body, gone)
+        if body != c.body:
+            body = body.rstrip("\n") + "\n"
             text = c.path.read_text(encoding="utf-8")
-            body = _drop_sections(c.body, drop).rstrip("\n") + "\n"
             write_if_changed(c.path, text[: len(text) - len(c.body)] + body)
             report.edited_concepts.append(slug)
         if gone & set(wikilinks(body)):

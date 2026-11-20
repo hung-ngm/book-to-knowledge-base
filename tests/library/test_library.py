@@ -161,7 +161,7 @@ def test_index_lists_books_and_concepts_by_kind(library):
     index = (library / "index.md").read_text()
     assert "[[alpha\\|Alpha Book]]" in index
     assert "### framework (1)" in index
-    assert "- [[reinforcing-loop|Reinforcing Loop]] · aka positive feedback, virtuous circle · 2 books" in index
+    assert "- [[reinforcing-loop|Reinforcing Loop]] · aka positive feedback; virtuous circle · 2 books" in index
 
 
 def test_glossary_points_aliases_at_their_concept(library):
@@ -253,8 +253,19 @@ def test_remove_book_drops_its_contributions_and_orphaned_concepts(library):
     assert ALPHA_CONTRIBUTION in shared
 
 
+def test_remove_book_drops_related_lines_to_removed_notes(library):
+    # Related only linked balancing-loop, which is deleted with beta.
+    report = commands.remove_book(load(library), "beta")
+    shared = (library / "concepts/reinforcing-loop.md").read_text()
+    assert "balancing-loop" not in shared
+    assert "## Related" not in shared
+    assert report.stale_prose == []
+    assert errors(library) == []
+
+
 def test_remove_book_reports_prose_that_still_links_the_removed_book(library):
-    # Related still links balancing-loop, which is deleted with beta.
+    path = library / "concepts/reinforcing-loop.md"
+    path.write_text(path.read_text().replace("It explains compounding.", "Beta's [[balancing-loop]] is its twin."))
     report = commands.remove_book(load(library), "beta")
     assert report.stale_prose == ["reinforcing-loop"]
     assert any("broken wikilink [[balancing-loop]]" in e for e in errors(library))

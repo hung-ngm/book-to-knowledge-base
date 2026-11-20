@@ -5,6 +5,8 @@
    - It deletes `books/<book>/` and this Book's Contributions.
    - It deletes Concepts left with no Contribution.
    - It drops `## Tensions` from Concepts left with a single Book.
+   - It drops `## Related` bullets that point at a deleted note.
    - It rebuilds the Index Pages.
 3. **Exit code 2** means the listed Concepts still mention the removed Book, its chapters, or a deleted Concept in their prose. Rewrite those sentences in each listed Concept: the definition, Tensions, and Related. They must no longer depend on the removed Book. Never edit another Book's Contribution, except to drop a broken link.
-4. Run "After every change" from `SKILL.md` and report what was deleted and what you rewrote.
+4. **Check what the tool cannot attribute.** Aliases, a sharpened definition, and `## Related` lines between surviving Concepts carry no Book. In each edited Concept, remove those that came only from the removed Book: an alias only it used, a sentence only it supports.
+5. Run "After every change" from `SKILL.md` and report what was deleted and what you rewrote.

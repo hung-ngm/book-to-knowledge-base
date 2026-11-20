@@ -22,6 +22,8 @@ added: <YYYY-MM-DD>
 
 **Author**: <Author(s)> · **Year**: <YYYY> · **Chapters**: <N>
 
+<If the sources cover only part of the book, one line first: "Excerpt: <which parts>.">
+
 <One paragraph: what the book argues, for whom, and the 3–6 Concepts it is known for, as [[concept-slug|Name]] links.>
 
 <!-- kb:chapters -->
@@ -70,6 +72,8 @@ source_lines: "<start>-<end>"
 - [[<book>-chNN]]: <why>
 ```
 
+`Connects To` may link chapters of other Books in the Library. A title combines the label and the heading: "Chapter I: On Value".
+
 Leave out any section that does not apply. Do not leave it with filler.
 
 **Budget per Chapter Note.** Earn study depth with content: a worked example, steps for each framework, and why it fails. Never pad.
@@ -114,6 +118,7 @@ aliases:
 
 Rules:
 
+- **No aliases.** Write `aliases: []`.
 - **Contribution order.** Contributions come right after the definition, in the order Books were added.
 - **Edits on later Books.** A later Book adds its own `## In [[book]]` section. It may also sharpen the definition, add aliases, add `## Tensions`, or add `## Related` lines. It never edits another Book's Contribution.
 - **Concept Kind:**
