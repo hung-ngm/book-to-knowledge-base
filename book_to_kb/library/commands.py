@@ -1,6 +1,6 @@
 """Library commands: init, concepts, index, validate, remove-book.
 
-Index Pages are derived from the notes and never edited by hand (ADR 0003).
+Index Pages are derived from the notes and never edited by hand.
 Every write goes through ``write_if_changed`` so each command converges to the
 same files however often it runs.
 """

@@ -118,7 +118,7 @@ Also called: <another name this Book uses>; <original-language term, when the Li
 
 Rules:
 
-- **A Book owns only its Contribution** (ADR 0004). Everything a Book adds lives in its `## In [[book]]` section, so removing the Book removes all of it:
+- **A Book owns only its Contribution**. Everything a Book adds lives in its `## In [[book]]` section, so removing the Book removes all of it:
   - **Names.** The `Also called:` line, first in the section, lists this Book's other names for the Concept, separated by `;`: abbreviations, synonyms, original-language terms. A generic label the author files it under ("Batching", "Caching") is not a name. Leave the line out when there are none.
   - **Aliases.** Never edit `aliases` in frontmatter. `index` rebuilds it from every `Also called:` line, and `validate` flags a hand edit.
   - **Details and relations only this Book draws** go in its Contribution, not in the definition or in `## Related`.
