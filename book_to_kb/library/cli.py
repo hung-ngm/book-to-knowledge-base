@@ -1,20 +1,17 @@
-"""CLI: python -m book_to_kb.library <command> <library> [options]."""
+"""Library CLI. Run through scripts/kb.py, never `python -m` (see scripts/kb.py)."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-sys.dont_write_bytecode = True
-
-from pathlib import Path  # noqa: E402
-
-from . import commands  # noqa: E402
-from .model import LibraryError, load  # noqa: E402
+from . import commands
+from .model import LibraryError, load
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m book_to_kb.library")
+    parser = argparse.ArgumentParser(prog="kb.py")
     sub = parser.add_subparsers(dest="command", required=True)
     p_init = sub.add_parser("init", help="create a Library (safe to rerun)")
     p_init.add_argument("library", type=Path)
@@ -64,7 +61,3 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc.args[0]}", file=sys.stderr)
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from book_to_kb.library import commands
-from book_to_kb.library.__main__ import main
+from book_to_kb.library.cli import main
 from book_to_kb.library.model import LibraryError, load
 
 ALPHA_CONTRIBUTION = """## In [[alpha]]

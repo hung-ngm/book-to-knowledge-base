@@ -47,6 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ENTRY_POINTS = {
     "scripts/extract.py": "book-to-knowledge-base · turns books into a linked knowledge base",
     "tools/scan_generated_skill.py": "usage: scan_generated_skill.py [-h] path",
+    "scripts/kb.py": "usage: kb.py [-h]",
     "book_to_kb/cli.py": "book-to-knowledge-base · turns books into a linked knowledge base",
 }
 
